@@ -1729,7 +1729,7 @@ export default function SellerDashboard() {
       <style>{`@keyframes spin-seller { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
       <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#1e293b', marginBottom: '8px' }}>Initializing Seller Hub</h3>
       <p style={{ color: '#64748b', maxWidth: '300px', lineHeight: 1.5, fontSize: '0.9rem' }}>
-        {connectionSlow ? "We're having trouble connecting to the server. Please ensure your backend is running on port 5000." : "Accelerating your business environment..."}
+        {connectionSlow ? "We're having trouble connecting to the server. Please ensure the backend is running." : "Accelerating your business environment..."}
       </p>
       <div style={{ marginTop: '20px', display: 'flex', gap: '12px' }}>
         {connectionSlow && (
