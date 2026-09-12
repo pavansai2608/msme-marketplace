@@ -15,8 +15,11 @@ const cleanup = () => {
   }
 }
 
-// Run cleanup every 15 minutes
-setInterval(cleanup, WINDOW_MS)
+// Run cleanup every 15 minutes. unref() so this timer never by itself keeps
+// the process alive - the HTTP server does that. Without it, anything that
+// imports the app (tests, scripts) hangs forever instead of exiting.
+const cleanupTimer = setInterval(cleanup, WINDOW_MS)
+if (typeof cleanupTimer.unref === 'function') cleanupTimer.unref()
 
 exports.rateLimiter = (req, res, next) => {
   const key = req.ip || req.connection.remoteAddress || 'unknown'
@@ -38,11 +41,10 @@ exports.rateLimiter = (req, res, next) => {
   if (data.count >= MAX_REQUESTS) {
     return res.status(429).json({
       success: false,
-      message: 'Too many attempts. Please try again after 15 minutes.'
+      message: 'Too many attempts. Please try again after 15 minutes.',
     })
   }
 
   data.count += 1
   return next()
 }
-
