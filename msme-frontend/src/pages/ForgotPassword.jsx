@@ -14,7 +14,7 @@ export default function ForgotPassword() {
     setError('')
     setMessage('')
     try {
-      const { data } = await axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/auth/forgot-password`, { email })
+      const { data } = await axios.post('/api/auth/forgot-password', { email }, { withCredentials: true })
       setMessage(data.message || 'Reset link sent to your email successfully!')
     } catch (err) {
       setError(err.response?.data?.message || 'Something went wrong. Please try again.')
