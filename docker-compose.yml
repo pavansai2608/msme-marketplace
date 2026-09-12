@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+
+  backend:
+    build:
+      context: ./msme-backend
+    container_name: msme-backend
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./msme-backend/.env
+    restart: always
+
+  frontend:
+    build:
+      context: ./msme-frontend
+      args:
+        VITE_API_URL: http://localhost:5000/api
+    container_name: msme-frontend
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+    restart: always

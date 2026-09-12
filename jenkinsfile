@@ -1,0 +1,56 @@
+pipeline {
+    agent any
+
+    environment {
+        MONGO_URL = credentials('MONGO_URL')
+        JWT_SECRET = credentials('JWT_SECRET')
+        GOOGLE_CLIENT_ID = credentials('GOOGLE_CLIENT_ID')
+        GOOGLE_CLIENT_SECRET = credentials('GOOGLE_CLIENT_SECRET')
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/chakriparella666-dev/MSMEplatform.git'
+            }
+        }
+
+        stage('Create Backend .env File') {
+            steps {
+                writeFile file: 'msme-backend/.env', text: """
+MONGO_URL=${MONGO_URL}
+JWT_SECRET=${JWT_SECRET}
+GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+PORT=5000
+"""
+            }
+        }
+
+        stage('Stop Old Containers') {
+            steps {
+                bat 'docker compose down'
+            }
+        }
+
+        stage('Build Docker Images') {
+            steps {
+                bat 'docker compose build --no-cache'
+            }
+        }
+
+        stage('Run Containers') {
+            steps {
+                bat 'docker compose up -d'
+            }
+        }
+
+        stage('Verify Containers') {
+            steps {
+                bat 'docker ps'
+            }
+        }
+    }
+}
