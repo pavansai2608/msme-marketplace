@@ -6,7 +6,12 @@ dist/
 build/
 .vscode/
 .env.*
+# ...but the template MUST be committed.
+!.env.example
 __pycache__/
 *.pyc
 target/
 .venv/
+.pytest_cache/
+.coverage
+coverage/
