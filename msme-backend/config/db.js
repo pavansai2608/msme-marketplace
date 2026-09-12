@@ -5,9 +5,6 @@ const connectDB = async (retryCount = 10) => {
     const conn = await mongoose.connect(process.env.MONGO_URL, {
       serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 60000,
-      tls: true,
-      tlsAllowInvalidCertificates: true,
-      tlsAllowInvalidHostnames: true,
     })
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`)
     console.log(`📦 Using database: ${conn.connection.name}`)

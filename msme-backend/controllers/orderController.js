@@ -225,11 +225,16 @@ exports.getMyOrders = async (req, res) => {
 
 // @desc    Generate waybill (Mock Shiprocket API)
 // @route   POST /api/orders/:id/generate-waybill
-// @access  Private/Seller
+// @access  Private/Seller (must be a seller on this order)
 exports.generateWaybill = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    const isSeller = order.products.some(p => p.seller?.toString() === req.user.id.toString());
+    if (!isSeller) {
+      return res.status(403).json({ success: false, message: 'Not authorized to dispatch this order' });
+    }
 
     // Mock AWB generation
     const awb = 'SR' + Math.random().toString(36).substring(2, 10).toUpperCase();
@@ -270,14 +275,27 @@ exports.assignCarrier = async (req, res) => {
 
 // @desc    Get order by tracking ID
 // @route   GET /api/orders/track/:trackingId
-// @access  Private/Seller
+// @access  Private (the buyer of the order, or a seller on it)
 exports.trackOrder = async (req, res) => {
   try {
-    const order = await Order.findOne({ trackingId: req.params.trackingId })
+    // Fetched unpopulated first so that no buyer identity is ever loaded,
+    // let alone returned, before the caller has been authorised.
+    const order = await Order.findOne({ trackingId: req.params.trackingId });
+    if (!order) return res.status(404).json({ success: false, message: 'No order found with this tracking ID' });
+
+    const callerId = req.user.id.toString();
+    const isBuyer  = order.buyer?.toString() === callerId;
+    const isSeller = order.products.some(p => p.seller?.toString() === callerId);
+
+    if (!isBuyer && !isSeller) {
+      return res.status(403).json({ success: false, message: 'Not authorized to view this order' });
+    }
+
+    const populated = await Order.findById(order._id)
       .populate('buyer', 'name email')
       .populate('products.product', 'name images');
-    if (!order) return res.status(404).json({ success: false, message: 'No order found with this tracking ID' });
-    res.status(200).json({ success: true, data: order });
+
+    res.status(200).json({ success: true, data: populated });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

@@ -23,7 +23,7 @@ export default function Register() {
     if (!email) e.email = 'Email is required'
     else if (!/\S+@\S+\.\S+/.test(email)) e.email = 'Enter a valid email address'
     if (!password) e.password = 'Password is required'
-    else if (password.length < 6) e.password = 'Password must be at least 6 characters'
+    else if (password.length < 8) e.password = 'Password must be at least 8 characters'
     return e
   }
 
@@ -37,7 +37,7 @@ export default function Register() {
       const data = await registerUser({ name, email, password })
       setUser(data.user)
       setSuccess(true)
-      setTimeout(() => navigate('/dashboard'), 1500)
+      setTimeout(() => navigate('/buyer'), 1500)
     } catch (err) {
       setApiError(err?.response?.data?.message || 'Registration failed. Please try again.')
     } finally {

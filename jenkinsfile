@@ -13,7 +13,7 @@ pipeline {
         stage('Checkout Code') {
             steps {
                 git branch: 'main',
-                    url: 'https://github.com/chakriparella666-dev/MSMEplatform.git'
+                    url: 'https://github.com/pavansai2608/msme-marketplace.git'
             }
         }
 

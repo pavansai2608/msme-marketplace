@@ -10,8 +10,7 @@ export default function SellerOnboarding({ onComplete }) {
     businessName: '',
     panCardName: '',
     district: '',
-    state: '',
-    role: 'seller'
+    state: ''
   })
 
   const [allStates, setAllStates] = useState([])
@@ -23,8 +22,7 @@ export default function SellerOnboarding({ onComplete }) {
         businessName: user.businessName || '',
         panCardName: user.panCardName || '',
         district: user.district || '',
-        state: user.state || '',
-        role: 'seller'
+        state: user.state || ''
       })
       if (user.state) {
         import('../../services/locationService').then(service => {
@@ -51,8 +49,10 @@ export default function SellerOnboarding({ onComplete }) {
     e.preventDefault()
     setLoading(true)
     try {
-      const { updateProfile } = await import('../../api/authApi')
-      const data = await updateProfile(formData)
+      // become-seller is the only route that can set role; update-profile
+      // deliberately refuses to.
+      const { becomeSeller } = await import('../../api/authApi')
+      const data = await becomeSeller(formData)
       if (data.success) {
         setUser(data.user)
         onComplete()
@@ -145,8 +145,10 @@ export default function SellerOnboarding({ onComplete }) {
               onClick={async () => {
                 localStorage.setItem('onboarding_skipped', 'true');
                 try {
+                  // Skipping cannot grant the seller role: that requires the
+                  // business details, via become-seller.
                   const { updateProfile } = await import('../../api/authApi')
-                  await updateProfile({ role: 'seller', isProfileComplete: true })
+                  await updateProfile({ isProfileComplete: true })
                 } catch (e) { console.error(e) }
                 window.location.reload();
               }}

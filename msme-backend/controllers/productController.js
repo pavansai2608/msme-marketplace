@@ -186,28 +186,3 @@ exports.getSellerProducts = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
-// @desc    Update user profile (onboarding)
-// @route   PUT /api/auth/updateprofile
-// @access  Private
-exports.updateUserProfile = async (req, res) => {
-  try {
-    const fieldsToUpdate = {
-      businessName: req.body.businessName,
-      panCardName: req.body.panCardName,
-      district: req.body.district,
-      state: req.body.state,
-      isProfileComplete: true
-    };
-
-
-    const user = await User.findByIdAndUpdate(req.user.id, fieldsToUpdate, {
-      new: true,
-      runValidators: true
-    });
-
-    res.status(200).json({ success: true, data: user });
-  } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
-  }
-};

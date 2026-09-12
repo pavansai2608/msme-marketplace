@@ -13,15 +13,23 @@ const {
 
 const { placeOrder } = require('../controllers/checkoutController');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { requireRole } = require('../middleware/roleMiddleware');
+
+const sellerOnly = [verifyToken, requireRole('seller', 'admin')];
 
 router.get('/my-orders', verifyToken, getMyOrders);
-router.get('/seller', verifyToken, getSellerOrders);
-router.get('/seller/stats', verifyToken, getSellerStats);
-router.get('/seller/forecast', verifyToken, getSellerForecast);
+
+// Seller-scoped reporting
+router.get('/seller', sellerOnly, getSellerOrders);
+router.get('/seller/stats', sellerOnly, getSellerStats);
+router.get('/seller/forecast', sellerOnly, getSellerForecast);
+
+// Per-order operations. These verify per-order ownership inside the controller,
+// so they stay available to the buyer where that is the intent (trackOrder).
 router.get('/track/:trackingId', verifyToken, trackOrder);
-router.put('/:id/status', verifyToken, updateOrderStatus);
-router.put('/:id/assign-carrier', verifyToken, assignCarrier);
-router.post('/:id/generate-waybill', verifyToken, generateWaybill);
+router.put('/:id/status', sellerOnly, updateOrderStatus);
+router.put('/:id/assign-carrier', sellerOnly, assignCarrier);
+router.post('/:id/generate-waybill', sellerOnly, generateWaybill);
 
 router.post('/checkout', verifyToken, placeOrder);
 

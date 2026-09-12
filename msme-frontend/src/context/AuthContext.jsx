@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
-import { getMe } from '../api/authApi'
+import { getMe, logoutUser } from '../api/authApi'
 
 const AuthContext = createContext(null)
 
@@ -46,7 +46,6 @@ function AuthProvider({ children }) {
       } else {
         if (status === 401 || status === 403 || status === 404) {
           updateSetUser(null);
-          localStorage.removeItem('token');
         }
         setLoading(false);
       }
@@ -72,12 +71,19 @@ function AuthProvider({ children }) {
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('onboarding_skipped');
-    setUser(null);
-    window.location.href = '/login';
+  // The session is the httpOnly cookie, so the server has to clear it.
+  // Wiping local state alone would leave the user still authenticated.
+  const logout = async () => {
+    try {
+      await logoutUser();
+    } catch (err) {
+      console.error('Logout request failed:', err);
+    } finally {
+      localStorage.removeItem('user');
+      localStorage.removeItem('onboarding_skipped');
+      setUser(null);
+      window.location.href = '/login';
+    }
   };
 
   const isPublicRoute = ['/login', '/register', '/forgot-password', '/reset-password', '/'].some(path => 

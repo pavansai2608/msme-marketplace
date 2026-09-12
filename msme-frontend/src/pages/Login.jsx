@@ -45,7 +45,7 @@ export default function Login() {
     if (!email)                            e.email = 'Email is required'
     else if (!/\S+@\S+\.\S+/.test(email)) e.email = 'Enter a valid email address'
     if (!password)                         e.password = 'Password is required'
-    else if (password.length < 6)          e.password = 'Password must be at least 6 characters'
+    else if (password.length < 8)          e.password = 'Password must be at least 8 characters'
     return e
   }
 
