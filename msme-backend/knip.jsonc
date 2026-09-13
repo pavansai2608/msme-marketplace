@@ -1,0 +1,44 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+
+  // Entry points knip cannot infer on its own. Without these it reports each
+  // of them as an "unused file", because nothing in the codebase imports them.
+  // knip already infers server.js from package.json, and already skips
+  // coverage/ and test-results/ - it reports either as a redundant hint, so
+  // only the patterns it genuinely cannot work out are listed here.
+  "entry": [
+    // Operator scripts. Run by hand, never imported:
+    //   seedAdmin.js     the only supported way to create an admin (README.md)
+    //   seedSynthetic.js generates the catalogue the recommender is evaluated
+    //                    against (msme-recommender/README.md)
+    //   seedE2E.js       seeds and purges the Playwright fixtures; the E2E
+    //                    stage of the jenkinsfile runs it
+    "scripts/*.js",
+
+    "tests/**/*.test.js"
+  ],
+
+  "project": ["**/*.js"],
+
+  "ignoreDependencies": [
+    // Handed to jest as a reporter STRING by the test:ci script
+    // (--reporters=jest-junit), which is how Jenkins gets its JUnit XML.
+    // knip resolves imports, not CLI argument values, so it cannot see this.
+    "jest-junit"
+  ]
+
+  // Known false positives, deliberately NOT suppressed - suppressing them
+  // would hide real regressions in the same files:
+  //
+  //   utils/recommender.js  similarToProduct / recommendForUser / trending
+  //     Reported as unused exports. They are called by productController.js
+  //     through a CommonJS namespace (`recommender.similarToProduct(...)`),
+  //     which knip does not follow. Verify with:
+  //       grep -rn "recommender\." controllers/
+  //
+  //   utils/tokens.js  ACCESS_TTL / REFRESH_TTL_MS / ACCESS_COOKIE /
+  //   signRefreshToken, and utils/recommender.js TIMEOUT_MS
+  //     The *exports* really are unconsumed, but each symbol is used inside
+  //     its own module. Removing the symbol would break auth; only the export
+  //     keyword is dead.
+}

@@ -1,0 +1,12 @@
+# depcheck resolves `import`/`require`; it cannot see a package invoked as a
+# CLI by a git hook or a config file. Everything listed here is verifiably in
+# use - the reference is just not an import.
+ignores:
+  # .husky/commit-msg runs `commitlint --edit "$1"`
+  - "@commitlint/cli"
+  # commitlint.config.js does `extends: ['@commitlint/config-conventional']`
+  - "@commitlint/config-conventional"
+  # .husky/pre-commit runs `lint-staged`, configured in .lintstagedrc.js
+  - "lint-staged"
+  # This tool itself, run via `npm run depcheck`.
+  - "depcheck"
