@@ -1,8 +1,9 @@
 # Jenkins
 
-CI/CD for the MSME marketplace. The pipeline lives in [`jenkinsfile`](../jenkinsfile)
-at the repository root; the reusable steps it calls live in
-[`shared-library/`](shared-library/).
+CI/CD for the MSME marketplace. The whole pipeline is one file:
+[`jenkinsfile`](../jenkinsfile) at the repository root. It is self-contained on
+purpose — no shared library, nothing to configure in the Jenkins UI beyond the
+job itself and one credential.
 
 Jenkins runs on the Mac via `brew services` (`jenkins-lts`, `http://localhost:8080`),
 so the controller *is* the build agent. It shares the developer's Docker
@@ -32,23 +33,28 @@ cleans the workspace. `post { failure }` echoes where to look.
 
 ## 1. Install these plugins
 
-Everything else the pipeline uses is already installed on this controller.
-**Manage Jenkins → Plugins → Available plugins**, then restart:
+**Manage Jenkins → Plugins**, then restart:
 
 | Plugin ID | Shown in the UI as | Needed for |
 |-----------|--------------------|-----------|
-| `workflow-cps-global-lib` | **Pipeline: Shared Groovy Libraries** | `@Library('msme-shared')` — without it the build fails on line 1 |
 | `htmlpublisher` | **HTML Publisher** | `publishHTML` — the Playwright report |
 | `coverage` | **Coverage** | `recordCoverage` — the cobertura XML from jest and pytest |
 
-Already present and used: `workflow-aggregator`, `workflow-job`, `workflow-cps`,
-`junit`, `credentials`, `credentials-binding`, `plain-credentials`, `git`,
-`timestamper`, `ws-cleanup`, `build-timeout`, `pipeline-stage-view`.
+That is the whole list, and on this controller both are already installed.
 
-> The pipeline deliberately does **not** need the `kubernetes-cli` or `nodejs`
-> plugins. `kubectl`, `node` and `docker` are used straight from `PATH`, which
-> the `environment` block extends with `/opt/homebrew/bin` — a brew-launched
-> Jenkins starts with a bare `PATH` and would otherwise not find any of them.
+Already present and used: `workflow-aggregator`, `workflow-job`, `workflow-cps`,
+`workflow-multibranch`, `junit`, `credentials`, `credentials-binding`,
+`plain-credentials`, `git`, `github-branch-source`, `timestamper`, `ws-cleanup`,
+`build-timeout`, `pipeline-stage-view`.
+
+> **Not needed:** `pipeline-groovy-lib` (formerly `workflow-cps-global-lib`).
+> The pipeline used to require it for `@Library('msme-shared')`; the step is now
+> a plain Groovy function at the bottom of the jenkinsfile. Nor does it need
+> `kubernetes-cli` or `nodejs` — `kubectl`, `node` and `docker` are used
+> straight from `PATH`, which the `environment` block extends with
+> `/opt/homebrew/bin`. A brew-launched Jenkins starts with a bare `PATH` and
+> would otherwise not find any of them.
+
 
 ---
 
@@ -74,35 +80,28 @@ JWT secrets and the Google OAuth pair, and `k8s/make-secret.sh` already knows
 how to filter it down to the keys that belong in a Kubernetes Secret. Handing
 Jenkins the same file keeps one definition instead of two that drift.
 
-The pipeline only ever handles the *path* to that file. It is sourced inside a
-subshell (`( set -a; . "$BACKEND_ENV"; set +a; node scripts/seedE2E.js )`) or
-passed to `make-secret.sh` via `MSME_ENV_FILE`. No secret value is ever
-interpolated into a Groovy string, a shell command line, or the build log.
+The pipeline only ever handles the *path* to that file: it is passed to
+`make-secret.sh` via `MSME_ENV_FILE`, or read by a shell that has turned its own
+tracing off first. No secret value is ever interpolated into a Groovy string, a
+shell command line, or the build log.
+
+### The one trap: `sh` runs with `-x`
+
+Jenkins executes every `sh` step as `sh -xe`, so the shell traces each command
+it runs. Sourcing the credential file (`set -a; . "$BACKEND_ENV"`) therefore
+printed **every value in it** — the Atlas password inside MONGO_URL, JWT_SECRET
+and the Google client secret — straight into the console log. A Secret *file*
+binding masks the file's path, never its contents, so nothing downstream
+catches it.
+
+The E2E stage now starts that step with `set +x` before it touches the
+credential, and lifts out only MONGO_URL. If you add a step that reads this
+credential, do the same: **`set +x` first, then read.**
 
 ---
 
-## 3. Configure the shared library
 
-**Manage Jenkins → System → Global Pipeline Libraries → Add:**
-
-| Field | Value |
-|-------|-------|
-| Name | `msme-shared` |
-| Default version | `main` (or the branch you build) |
-| Load implicitly | **unticked** — the Jenkinsfile asks for it by name |
-| Allow default version to be overridden | ticked |
-| Retrieval method | Modern SCM → Git |
-| Project repository | `https://github.com/pavansai2608/msme-marketplace.git` |
-| **Library Path** | `jenkins/shared-library` |
-
-That **Library Path** field is the important one. Jenkins expects `vars/` at the
-root of the library repository; this repo keeps the library in a subdirectory so
-it versions with the pipeline that uses it, and the path field is what bridges
-the two.
-
----
-
-## 4. Create the job
+## 3. Create the job
 
 **New Item → Pipeline** (name it `msme-marketplace`), then:
 
@@ -128,7 +127,7 @@ Build parameters appear after the first run (Jenkins has to execute the
 
 ---
 
-## 5. Before the first build
+## 4. Before the first build
 
 The cluster has to exist; the pipeline deploys to it but does not create it.
 
@@ -217,9 +216,11 @@ records. `node scripts/seedE2E.js --clean` purges without reseeding.
 
 ## Troubleshooting
 
-**`No such DSL method 'dockerBuildAndTag'`**
-The shared library is not configured, or its **Library Path** is not set to
-`jenkins/shared-library`. See step 3.
+**`Could not find any definition of libraries [msme-shared]`**
+An old copy of the jenkinsfile that still carries `@Library('msme-shared')` at
+the top. That line is gone; `dockerBuildAndTag` is a plain Groovy function at
+the bottom of the file. Make sure the branch being built has the current
+jenkinsfile.
 
 **`docker: command not found` / `kubectl: command not found`**
 The `PATH` in the `environment` block does not cover where brew put them.

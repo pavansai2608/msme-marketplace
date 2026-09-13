@@ -1,5 +1,3 @@
-@Library('msme-shared') _
-
 /**
  * MSME marketplace - build, test, deploy, verify.
  *
@@ -10,9 +8,13 @@
  * The pipeline never writes a secret to disk in the workspace and never
  * interpolates one into a shell command. msme-backend/.env arrives as a
  * Jenkins Secret file credential; only its PATH is ever handled here, and the
- * file itself is sourced inside a subshell or handed to a script that reads it.
+ * file is either handed to a script that reads it or parsed by a shell that
+ * has disabled its own xtrace first - see the seed step in the E2E stage.
  *
- * See jenkins/README.md for the plugins and credential IDs this expects.
+ * Self-contained on purpose: no @Library, no globally configured shared
+ * library, nothing to set up in the Jenkins UI beyond the job and the
+ * msme-backend-env credential. dockerBuildAndTag lives at the bottom of this
+ * file. See jenkins/README.md.
  */
 pipeline {
   agent any
@@ -126,11 +128,6 @@ pipeline {
               sh 'npm run test:ci'
             }
           }
-          post {
-            always {
-              junit allowEmptyResults: false, testResults: 'msme-backend/test-results/jest-junit.xml'
-            }
-          }
         }
         stage('pytest') {
           steps {
@@ -146,12 +143,6 @@ pipeline {
                   --cov-report=xml:coverage.xml \
                   --cov-report=term-missing
               '''
-            }
-          }
-          post {
-            always {
-              junit allowEmptyResults: false,
-                    testResults: 'msme-recommender/test-results/pytest-junit.xml'
             }
           }
         }
@@ -270,9 +261,24 @@ pipeline {
         // so the build should not go red over it.
         retry(3) {
           dir('msme-backend') {
+            // `set +x` FIRST, before the credential is touched.
+            //
+            // Jenkins runs every sh step as `sh -xe`, so sourcing the whole
+            // .env traced each assignment straight into the console log -
+            // MONGO_URL with its Atlas password, JWT_SECRET and the Google
+            // client secret, all in clear. A Secret *file* binding masks the
+            // file's PATH, never its contents, so nothing downstream catches
+            // that. Only MONGO_URL is lifted out, and only into this shell.
             sh '''
+              set +x
               set -eu
-              ( set -a; . "${BACKEND_ENV}"; set +a; node scripts/seedE2E.js )
+              MONGO_URL="$(sed -n 's/^MONGO_URL=//p' "${BACKEND_ENV}" | tail -1)"
+              if [ -z "${MONGO_URL}" ]; then
+                echo "MONGO_URL is not present in the msme-backend-env credential" >&2
+                exit 1
+              fi
+              export MONGO_URL
+              node scripts/seedE2E.js
             '''
           }
         }
@@ -319,12 +325,6 @@ pipeline {
           }
         }
       }
-      post {
-        always {
-          junit allowEmptyResults: true,
-                testResults: 'msme-frontend/test-results/e2e-junit.xml'
-        }
-      }
     }
 
     // ── 7 ────────────────────────────────────────────────────────────────────
@@ -363,6 +363,11 @@ pipeline {
       when {
         expression { params.DEPLOY_PROD }
         beforeAgent true
+        // Declarative evaluates a stage's `input` directive BEFORE its `when`
+        // unless told otherwise, so without this the gate prompts on every
+        // build - including the ones that are not releasing anything - and
+        // the pipeline hangs there until the 30-minute timeout kills it.
+        beforeInput true
       }
       input {
         message 'Promote this build to production?'
@@ -442,8 +447,18 @@ pipeline {
 
   post {
     always {
-      // Every junit XML the build produced, whichever stages ran.
-      junit allowEmptyResults: true, testResults: '**/test-results/*junit*.xml'
+      // The single JUnit publisher for the whole build.
+      //
+      // The stages used to publish their own as well, and this glob then
+      // matched the same files again - Jenkins counted every test twice (266
+      // for a 133-test build). One publisher, one count. post{always} runs
+      // whatever happened, so a failure part-way through still reports the
+      // tests that did run.
+      //
+      // allowEmptyResults stays false: lint and unit tests always produce XML,
+      // so an empty match means a reporter silently stopped writing and the
+      // build should say so rather than pass with nothing measured.
+      junit allowEmptyResults: false, testResults: '**/test-results/*junit*.xml'
 
       archiveArtifacts(
         artifacts: [
@@ -469,4 +484,106 @@ pipeline {
       echo "UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER} - tests passed but a report did not publish."
     }
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Steps
+//
+// Plain Groovy methods at the top level of a Jenkinsfile are callable from any
+// `script` block, which is all a one-pipeline helper ever needed.
+//
+// This used to be a shared library (jenkins/shared-library/vars/). It was
+// dropped because a shared library only pays for itself when something else
+// shares it, and nothing did: this step has exactly one caller, in the same
+// repository. What it cost instead was a Global Pipeline Library that every
+// controller had to be configured with by hand - and when that configuration
+// was missing the build failed at Groovy compile time, before a single stage
+// ran, with "Could not find any definition of libraries [msme-shared]".
+//
+// Loading it dynamically with the `library` step would have removed the UI
+// setup but not the rest. The library would still be fetched from GitHub on
+// every build, at a pinned version: `msme-shared@main` makes all seven indexed
+// branches run main's copy of the step, so a branch that changes it cannot
+// test the change; `msme-shared@${BRANCH_NAME}` fails outright on the five
+// branches that have no jenkins/shared-library directory at all.
+//
+// Inlined, the step and its caller are the same file. They cannot drift, they
+// are always the branch's own version, and the pipeline runs on a stock
+// controller with no library configuration anywhere.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Builds one service image and tags it.
+ *
+ * Exists because the pipeline builds three images that differ only in their
+ * name and build context, while every one of them wants the same things: an
+ * immutable tag from the commit, the moving tag the overlay pins, OCI
+ * provenance labels, and a line in the log saying what came out.
+ *
+ *   dockerBuildAndTag(
+ *     name:     'msme-backend',      // image name (required)
+ *     tag:      env.GIT_SHA,         // immutable tag (required)
+ *     context:  'msme-backend',      // build context, defaults to `name`
+ *     alsoTag:  ['dev'],             // extra moving tags
+ *     registry: 'ghcr.io/acme',      // prefix, for a pushed image
+ *   )
+ *
+ * Returns the fully qualified primary image reference, e.g.
+ * "msme-backend:8f3c1d2" or "ghcr.io/acme/msme-backend:8f3c1d2".
+ */
+def dockerBuildAndTag(Map args = [:]) {
+  String name = requiredArg(args, 'name')
+  String tag = requiredArg(args, 'tag')
+  String context = args.get('context', name)
+  String dockerfile = args.get('dockerfile', "${context}/Dockerfile")
+  List alsoTag = (args.get('alsoTag', []) as List).findAll { it }
+  String registry = args.get('registry', '')
+
+  if (!fileExists(dockerfile)) {
+    error("dockerBuildAndTag: no Dockerfile at '${dockerfile}'")
+  }
+  if (!fileExists(context)) {
+    error("dockerBuildAndTag: build context '${context}' does not exist")
+  }
+
+  String repo = registry ? "${registry}/${name}" : name
+  String primary = "${repo}:${tag}"
+
+  // Every tag this build should answer to, primary first.
+  List allTags = [tag] + alsoTag.findAll { it != tag }
+  String tagFlags = allTags.collect { "--tag '${repo}:${it}'" }.join(' \\\n    ')
+
+  echo "Building ${primary} (context: ${context}, also tagged: ${alsoTag ?: 'none'})"
+
+  sh """
+    set -eu
+    docker build \\
+    ${tagFlags} \\
+      --file '${dockerfile}' \\
+      --label 'org.opencontainers.image.revision=${tag}' \\
+      --label 'org.opencontainers.image.source=${env.GIT_URL ?: ''}' \\
+      --label 'org.opencontainers.image.version=${tag}' \\
+      --label 'ci.jenkins.build=${env.BUILD_TAG ?: ''}' \\
+      '${context}'
+  """
+
+  // Reported rather than assumed: an image that suddenly doubles in size is
+  // usually a .dockerignore that stopped matching, and that is much easier to
+  // notice in the build log than in a registry weeks later.
+  String bytes = sh(
+    script: "docker image inspect '${primary}' --format '{{.Size}}'",
+    returnStdout: true
+  ).trim()
+
+  echo "Built ${primary} - ${(bytes as Long).intdiv(1024 * 1024)} MB, tags: ${allTags.join(', ')}"
+  return primary
+}
+
+/** Fails the build with a useful message rather than a Groovy NPE later on. */
+def requiredArg(Map args, String key) {
+  def value = args.get(key)
+  if (!value) {
+    error("dockerBuildAndTag: '${key}' is required (got: ${value})")
+  }
+  return value.toString()
 }
