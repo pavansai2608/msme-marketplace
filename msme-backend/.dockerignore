@@ -1,12 +1,12 @@
-.venv
-__pycache__
-*.pyc
-.pytest_cache
-tests
+node_modules
+npm-debug.log
 .env
 .env.*
 !.env.example
+tests
+coverage
 .git
+.gitignore
 Dockerfile
 .dockerignore
 *.md
