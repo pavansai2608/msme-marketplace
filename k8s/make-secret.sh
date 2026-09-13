@@ -7,10 +7,14 @@
 # .env silently override the cluster's own settings.
 #
 #   ./k8s/make-secret.sh [namespace]
+#
+# MSME_ENV_FILE overrides where the .env is read from. CI has no working copy
+# of it - Jenkins hands the file over as a Secret file credential at a path it
+# chooses - so the location has to be injectable rather than fixed.
 set -euo pipefail
 
 NS="${1:-msme}"
-ENV_FILE="$(dirname "$0")/../msme-backend/.env"
+ENV_FILE="${MSME_ENV_FILE:-$(dirname "$0")/../msme-backend/.env}"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "error: $ENV_FILE not found" >&2

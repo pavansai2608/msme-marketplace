@@ -21,3 +21,16 @@ coverage/
 k8s/secret.yaml
 k8s/**/secret.yaml
 !k8s/base/secret.example.yaml
+
+# Playwright end-to-end output and the saved fixture session.
+msme-frontend/playwright-report/
+msme-frontend/test-results/
+msme-frontend/e2e/.auth/
+msme-frontend/blob-report/
+
+# Test reports consumed by Jenkins (junit XML, coverage).
+msme-backend/test-results/
+msme-backend/coverage/
+msme-recommender/test-results/
+msme-recommender/coverage.xml
+msme-recommender/.coverage

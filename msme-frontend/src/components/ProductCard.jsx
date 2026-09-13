@@ -36,6 +36,8 @@ export default function ProductCard({ p, wishlistIds = [], onToggleWishlist }) {
   return (
     <div
       className="product-card-premium"
+      data-testid="product-card"
+      data-product-id={p._id}
       onClick={() => navigate(`/product/${p._id}`)}
       style={{
         padding: 0,

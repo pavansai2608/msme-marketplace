@@ -9,3 +9,9 @@ Dockerfile
 .dockerignore
 *.md
 coverage
+
+# Playwright: tests and their output never belong in the served image.
+e2e
+playwright.config.js
+playwright-report
+test-results

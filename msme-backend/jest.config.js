@@ -3,6 +3,10 @@ module.exports = {
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   testMatch: ['<rootDir>/tests/**/*.test.js'],
   testTimeout: 30000,
+  // lcov for humans, cobertura for the Jenkins coverage plugin, text-summary
+  // so a failing build shows the number in the console log.
+  coverageReporters: ['text-summary', 'lcov', 'cobertura'],
+  coverageDirectory: 'coverage',
   collectCoverageFrom: [
     'controllers/**/*.js',
     'middleware/**/*.js',

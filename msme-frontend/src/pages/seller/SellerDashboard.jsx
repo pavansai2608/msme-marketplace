@@ -4057,6 +4057,7 @@ function ProductForm({ newProduct, isEditing, onSubmit, onClose }) {
             <label className="input-label">Description</label>
             <textarea
               className="input-field"
+              data-testid="product-description"
               style={{ minHeight: '80px', resize: 'vertical' }}
               aria-invalid={Boolean(errors.description)}
               {...register('description')}
@@ -4071,6 +4072,7 @@ function ProductForm({ newProduct, isEditing, onSubmit, onClose }) {
                 type="number"
                 step="0.01"
                 className="input-field"
+                data-testid="product-price"
                 aria-invalid={Boolean(errors.price)}
                 {...register('price')}
               />
@@ -4162,6 +4164,7 @@ function ProductForm({ newProduct, isEditing, onSubmit, onClose }) {
                     type="number"
                     min="0"
                     className="input-field"
+                    data-testid="product-size-stock"
                     style={{ padding: '8px', textAlign: 'center', width: '60px' }}
                     {...register(`sizes.${idx}.stock`)}
                   />

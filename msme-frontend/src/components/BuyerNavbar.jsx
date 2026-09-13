@@ -306,6 +306,7 @@ export default function BuyerNavbar({
           </div>
 
           <div
+            data-testid="account-menu"
             style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}
             onClick={() => setSidebarOpen(true)}
           >
@@ -419,6 +420,7 @@ export default function BuyerNavbar({
             <FaShoppingCart size={16} color="var(--primary)" />
             <span style={{ fontWeight: 800, fontSize: '1rem', letterSpacing: '-0.2px' }}>Bag</span>
             <span
+              data-testid="cart-count"
               style={{
                 background: 'var(--primary)',
                 color: '#ffffff',
