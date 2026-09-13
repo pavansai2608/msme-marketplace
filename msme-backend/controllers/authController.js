@@ -47,6 +47,17 @@ exports.login = async (req, res) => {
     const user = await User.findOne({ email }).select('+password')
     if (!user || !user.password || !(await user.matchPassword(password)))
       return res.status(401).json({ success: false, message: 'Invalid email or password' })
+
+    // Checked AFTER the password, so this cannot be used to discover which
+    // accounts exist. Without it a suspended user logs in successfully and is
+    // then refused by every subsequent request with no explanation.
+    if (user.isActive === false)
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deactivated. Contact an administrator.',
+        code: 'account_inactive',
+      })
+
     user.lastLogin = new Date()
     await user.save()
     await sendAuth(user, 200, res)
@@ -99,12 +110,10 @@ exports.updateProfile = async (req, res) => {
         _id: { $ne: req.user.id },
       })
       if (existing) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: 'This business name is already registered by another seller.',
-          })
+        return res.status(400).json({
+          success: false,
+          message: 'This business name is already registered by another seller.',
+        })
       }
     }
 
@@ -168,12 +177,10 @@ exports.becomeSeller = async (req, res) => {
       _id: { $ne: req.user.id },
     })
     if (existing) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: 'This business name is already registered by another seller.',
-        })
+      return res.status(400).json({
+        success: false,
+        message: 'This business name is already registered by another seller.',
+      })
     }
 
     const user = await User.findById(req.user.id)

@@ -54,12 +54,20 @@ const runRefresh = () => {
   return refreshPromise
 }
 
-const onRefreshFailure = () => {
+const onRefreshFailure = (config) => {
   try {
     localStorage.removeItem('user')
   } catch {
     // Private mode or blocked storage: nothing to clean up.
   }
+
+  // A session PROBE must not navigate. AuthContext asks /auth/me on every page
+  // load to find out whether anyone is signed in; for a visitor the honest
+  // answer is 401, and treating that as an expired session would bounce every
+  // anonymous caller to /login - including on the public storefront, which the
+  // API deliberately serves anonymously via optionalAuth.
+  if (config?.skipAuthRedirect) return
+
   if (!window.location.pathname.startsWith('/login')) {
     window.location.href = '/login'
   }
@@ -82,7 +90,7 @@ http.interceptors.response.use(
 
     // A revoked family cannot be recovered by refreshing.
     if (response.data?.code === 'token_reuse' || response.data?.code === 'token_revoked') {
-      onRefreshFailure()
+      onRefreshFailure(config)
       return Promise.reject(error)
     }
 
@@ -91,7 +99,7 @@ http.interceptors.response.use(
     try {
       await runRefresh()
     } catch (refreshError) {
-      onRefreshFailure()
+      onRefreshFailure(config)
       return Promise.reject(refreshError)
     }
 

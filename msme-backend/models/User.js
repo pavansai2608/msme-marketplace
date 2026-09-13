@@ -27,6 +27,11 @@ const UserSchema = new mongoose.Schema(
 
     isVerified: { type: Boolean, default: false },
 
+    // Set false by an admin to suspend the account. Checked on every
+    // authenticated request, so suspension takes effect on the next call
+    // rather than when the current access token happens to expire.
+    isActive: { type: Boolean, default: true },
+
     // Buyer specific fields
     wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
     savedAddresses: [

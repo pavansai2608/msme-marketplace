@@ -712,7 +712,10 @@ export default function BuyerNavbar({
             <button
               onClick={() => {
                 setSidebarOpen(false)
-                navigate('/seller')
+                // /seller is gated to sellers and admins; anyone else has to
+                // go through onboarding first, which is what grants the role.
+                const isSeller = user?.role === 'seller' || user?.role === 'admin'
+                navigate(isSeller ? '/seller' : '/become-seller')
               }}
               style={{
                 background: '#000000',

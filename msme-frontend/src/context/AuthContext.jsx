@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
-import { getMe, logoutUser } from '../api/authApi'
+import { probeSession, logoutUser } from '../api/authApi'
 
 const AuthContext = createContext(null)
 
@@ -27,7 +27,7 @@ function AuthProvider({ children }) {
     }, 5000)
 
     try {
-      const data = await getMe()
+      const data = await probeSession()
       clearTimeout(safetyTimer)
       if (!isMounted.current) return
 
@@ -55,6 +55,12 @@ function AuthProvider({ children }) {
   }
 
   useEffect(() => {
+    // Reset on every mount. StrictMode mounts, unmounts and remounts in
+    // development: without this the cleanup leaves isMounted false, the second
+    // fetchUser bails out at its own guard, and `loading` never clears - which
+    // leaves every route guard stuck on "Checking your session...".
+    isMounted.current = true
+
     fetchUser()
     return () => {
       isMounted.current = false
