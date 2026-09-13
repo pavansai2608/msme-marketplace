@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import http from '../../api/http'
 import BuyerNavbar from '../../components/BuyerNavbar'
 import { FaTrash, FaRegHeart } from 'react-icons/fa'
 
@@ -16,7 +16,7 @@ export default function Wishlist() {
   const fetchWishlist = async () => {
     try {
       // the endpoint might not exist yet, we'll gracefully fallback
-      const { data } = await axios.get('/api/user/wishlist', { withCredentials: true })
+      const { data } = await http.get('/user/wishlist', { withCredentials: true })
       // Filter out nulls in case products were deleted
       setWishlist((data.data || []).filter((item) => item !== null))
     } catch (err) {
@@ -29,7 +29,7 @@ export default function Wishlist() {
 
   const handleRemove = async (id) => {
     try {
-      await axios.delete(`/api/user/wishlist/${id}`, { withCredentials: true })
+      await http.delete(`/user/wishlist/${id}`, { withCredentials: true })
       fetchWishlist()
       window.dispatchEvent(new Event('wishlistUpdated'))
     } catch (err) {
@@ -46,8 +46,8 @@ export default function Wishlist() {
     }
 
     try {
-      await axios.post(
-        '/api/cart/add',
+      await http.post(
+        '/cart/add',
         {
           productId: product._id,
           quantity: 1,
@@ -57,7 +57,7 @@ export default function Wishlist() {
       )
 
       // Remove from wishlist after moving to bag
-      await axios.delete(`/api/user/wishlist/${product._id}`, { withCredentials: true })
+      await http.delete(`/user/wishlist/${product._id}`, { withCredentials: true })
 
       window.dispatchEvent(new Event('cartUpdated'))
       window.dispatchEvent(new Event('wishlistUpdated'))

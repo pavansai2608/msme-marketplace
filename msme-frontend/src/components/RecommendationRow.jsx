@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+// Deliberately raw axios, not the shared http client: this row is optional
+// decoration on a public endpoint. Routing it through the refresh/redirect
+// interceptor could bounce a browsing visitor to /login over a row that is
+// meant to fail silently.
 import axios from 'axios'
 import { FaStore } from 'react-icons/fa'
 
