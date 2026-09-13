@@ -1,0 +1,257 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: msme
+
+resources:
+  - ../../base
+  - cluster-issuer.yaml
+  - redirect-middleware.yaml
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Placeholders
+#
+# Two tokens are substituted by scripts/aws-bootstrap.sh at apply time:
+#
+#   PUBLIC-IP-PLACEHOLDER   the elastic IP with dots replaced by dashes,
+#                           e.g. 13.234.56.78 -> 13-234-56-78, which is what
+#                           nip.io resolves. So the app ends up on
+#                           https://msme.13-234-56-78.nip.io
+#
+#   ACME-EMAIL-PLACEHOLDER  the address Let's Encrypt sends expiry warnings to,
+#                           read from ACME_EMAIL in /opt/msme/.env so no
+#                           personal address is committed.
+#
+# They are literal strings rather than kustomize vars on purpose: the overlay
+# stays renderable with a plain `kubectl kustomize` for review and CI checks,
+# with no extra tooling.
+# ─────────────────────────────────────────────────────────────────────────────
+
+images:
+  - name: msme-backend
+    newName: ghcr.io/pavansai2608/msme-backend
+    newTag: latest
+  - name: msme-frontend
+    newName: ghcr.io/pavansai2608/msme-frontend
+    newTag: latest
+  - name: msme-recommender
+    newName: ghcr.io/pavansai2608/msme-recommender
+    newTag: latest
+
+patches:
+  # ── One replica each ───────────────────────────────────────────────────────
+  # There is one node with 2 GiB. A second replica of anything buys no
+  # availability (it lands on the same box) and costs real memory.
+  - target:
+      kind: Deployment
+      name: msme-backend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: Deployment
+      name: msme-frontend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # ── Roll by replacing, never by surging ────────────────────────────────────
+  # The base uses maxUnavailable: 0 / maxSurge: 1, which needs room for a
+  # second copy of the pod during a rollout. On a 2 GiB node that room does not
+  # exist: the surge pod sits Pending, the old pod never terminates, and
+  # `rollout status` times out looking like a broken deploy. A single-replica
+  # service on one node has no real availability to protect, so it replaces.
+  - target:
+      kind: Deployment
+      name: msme-backend
+    patch: |-
+      - op: replace
+        path: /spec/strategy/rollingUpdate
+        value:
+          maxUnavailable: 1
+          maxSurge: 0
+  - target:
+      kind: Deployment
+      name: msme-frontend
+    patch: |-
+      - op: replace
+        path: /spec/strategy/rollingUpdate
+        value:
+          maxUnavailable: 1
+          maxSurge: 0
+  # The recommender has no strategy block in the base, so this adds one.
+  - target:
+      kind: Deployment
+      name: msme-recommender
+    patch: |-
+      - op: add
+        path: /spec/strategy
+        value:
+          type: RollingUpdate
+          rollingUpdate:
+            maxUnavailable: 1
+            maxSurge: 0
+
+  # ── Always pull from ghcr.io ───────────────────────────────────────────────
+  # The tag is `latest`, so IfNotPresent would pin the box to whatever it
+  # happened to pull first and a redeploy would silently change nothing.
+  - target:
+      kind: Deployment
+      name: msme-backend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+  - target:
+      kind: Deployment
+      name: msme-frontend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+  - target:
+      kind: Deployment
+      name: msme-recommender
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+
+  # ── Resources sized for 2 GiB total ────────────────────────────────────────
+  #
+  # Requests total 220m CPU / 384Mi, which schedules comfortably. Limits total
+  # 1600m / 784Mi, deliberately under the ~1.9 GiB the OS actually leaves once
+  # k3s, Traefik, CoreDNS, metrics-server and cert-manager have taken theirs
+  # (roughly 900Mi-1.0GiB in practice).
+  #
+  # Requests are set from measured steady-state usage on the same images, not
+  # guessed: backend ~130Mi, frontend ~10Mi, recommender ~105Mi with a
+  # 200-product index.
+  - target:
+      kind: Deployment
+      name: msme-backend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 100m
+            memory: 160Mi
+          limits:
+            cpu: 700m
+            memory: 320Mi
+      # Atlas from a t3.small over the public internet is slower than from a
+      # laptop, and nothing serves /health until mongoose connects. 60 x 5s.
+      - op: replace
+        path: /spec/template/spec/containers/0/startupProbe/failureThreshold
+        value: 60
+
+  - target:
+      kind: Deployment
+      name: msme-frontend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 20m
+            memory: 24Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+
+  - target:
+      kind: Deployment
+      name: msme-recommender
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 100m
+            memory: 200Mi
+          limits:
+            cpu: 700m
+            memory: 400Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/startupProbe/failureThreshold
+        value: 60
+
+  # ── HPA ────────────────────────────────────────────────────────────────────
+  # Max 2 as requested. See aws/README.md: the second replica schedules on
+  # requests but the node has little real headroom for it, so this is a
+  # burst-absorber, not capacity.
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: msme-backend
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 2
+
+  # ── Where the browser reaches the app ──────────────────────────────────────
+  # https, because NODE_ENV=production marks the auth cookies Secure and they
+  # are simply not sent over http. CLIENT_URL must match the ingress host
+  # exactly or CORS rejects the SPA's own API calls.
+  - target:
+      kind: ConfigMap
+      name: msme-config
+    patch: |-
+      - op: replace
+        path: /data/CLIENT_URL
+        value: https://msme.PUBLIC-IP-PLACEHOLDER.nip.io
+      - op: replace
+        path: /data/GOOGLE_CALLBACK_URL
+        value: https://msme.PUBLIC-IP-PLACEHOLDER.nip.io/api/auth/google/callback
+
+  # ── Ingress: Traefik, not nginx ────────────────────────────────────────────
+  # k3s ships Traefik and it is already running. The nginx annotations below
+  # are removed rather than left in place: an ingress carrying annotations for
+  # a controller that is not installed is a trap - they are silently ignored,
+  # so the body-size and timeout limits people think are set are not.
+  #
+  # Neither has a per-ingress Traefik equivalent, and neither is needed:
+  # Traefik applies no request body limit by default, and its read timeout is
+  # static config on the entrypoint, not something an Ingress can set.
+  - target:
+      kind: Ingress
+      name: msme-ingress
+    patch: |-
+      - op: remove
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1proxy-body-size
+      - op: remove
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1proxy-read-timeout
+      - op: replace
+        path: /spec/ingressClassName
+        value: traefik
+      - op: replace
+        path: /spec/rules/0/host
+        value: msme.PUBLIC-IP-PLACEHOLDER.nip.io
+      - op: add
+        path: /spec/tls
+        value:
+          - hosts:
+              - msme.PUBLIC-IP-PLACEHOLDER.nip.io
+            secretName: msme-tls
+      # cert-manager watches for this and issues the certificate into
+      # secretName above, solving the HTTP-01 challenge over port 80.
+      - op: add
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt-prod
+      # k3s names its Traefik entrypoints `web` (:80) and `websecure` (:443).
+      # Both are listed so port 80 still answers - and is redirected below.
+      - op: add
+        path: /metadata/annotations/traefik.ingress.kubernetes.io~1router.entrypoints
+        value: web,websecure
+      # <namespace>-<name>@kubernetescrd is Traefik's reference format for a
+      # Middleware CRD. This only attaches to THIS router, so the separate
+      # Ingress cert-manager creates for the ACME challenge is not redirected -
+      # which matters, because that challenge must be answerable over http.
+      - op: add
+        path: /metadata/annotations/traefik.ingress.kubernetes.io~1router.middlewares
+        value: msme-redirect-to-https@kubernetescrd

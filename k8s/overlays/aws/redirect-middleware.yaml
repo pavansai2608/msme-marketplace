@@ -1,0 +1,24 @@
+# Sends http to https.
+#
+# Needed rather than cosmetic: NODE_ENV=production makes the auth cookies
+# Secure, so over plain http the browser never sends them and every signed-in
+# request looks anonymous - a login that appears to succeed and then silently
+# does nothing.
+#
+# `permanent: false` (302) on purpose. A 301 is cached by the browser more or
+# less forever, which is painful while the certificate is still being issued
+# or if the host ever has to serve http again.
+#
+# The Middleware CRD ships with k3s's bundled Traefik; nothing extra to
+# install. It is referenced from the Ingress by the annotation
+# traefik.ingress.kubernetes.io/router.middlewares: msme-redirect-to-https@kubernetescrd
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-to-https
+  labels:
+    app.kubernetes.io/part-of: msme-marketplace
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: false
