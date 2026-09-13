@@ -1,0 +1,30 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: msme-backend
+  labels:
+    app.kubernetes.io/name: msme-backend
+    app.kubernetes.io/part-of: msme-marketplace
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: msme-backend
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Percentage of the *request* (100m), not the limit - so this trips
+          # at 70m of CPU per pod.
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      # React quickly to a spike, but not to a single scrape.
+      stabilizationWindowSeconds: 30
+    scaleDown:
+      # Slow to give back: scaling down mid-burst just causes a re-scale.
+      stabilizationWindowSeconds: 300

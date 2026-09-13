@@ -1,73 +1,41 @@
-import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import http from '../../api/http'
 import { FaArrowLeft, FaTrash, FaShoppingBag } from 'react-icons/fa'
 import BuyerNavbar from '../../components/BuyerNavbar'
+import { ListSkeleton } from '../../components/Skeletons'
+import { useCart, useUpdateCartQuantity, useRemoveFromCart } from '../../hooks/useCart'
+import { useToast } from '../../components/Toast'
 
 export default function CartPage() {
   const navigate = useNavigate()
-  const [cart, setCart] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const toast = useToast()
 
-  useEffect(() => {
-    fetchCart()
-  }, [])
+  const { data: cart, isPending: loading } = useCart()
+  const updateQuantityMutation = useUpdateCartQuantity()
+  const removeMutation = useRemoveFromCart()
 
-  const fetchCart = async () => {
-    try {
-      const { data } = await http.get('/cart', { withCredentials: true })
-      setCart(data.data)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoading(false)
+  const updateQuantity = (productId, size, quantity, maxStock) => {
+    if (quantity < 1) return
+    if (quantity > maxStock) {
+      toast.info(`Only ${maxStock} left in stock`)
+      return
     }
+    // Optimistic: the line total and the bag badge move with the click, and
+    // the hook restores the previous cart if the server refuses.
+    updateQuantityMutation.mutate({ productId, size, quantity })
   }
 
-  const updateQuantity = async (productId, size, quantity, maxStock) => {
-    if (quantity > maxStock) return
-    try {
-      const { data } = await http.put(
-        '/cart/update',
-        { productId, size, quantity },
-        { withCredentials: true }
-      )
-      if (data.success) fetchCart()
-      else alert(data.message)
-    } catch (err) {
-      alert(err.response?.data?.message || 'Could not update quantity')
-    }
-  }
+  const removeItem = (productId, size) => removeMutation.mutate({ productId, size })
 
-  const removeItem = async (productId, size) => {
-    try {
-      await http.delete(`/cart/remove`, { data: { productId, size }, withCredentials: true })
-      fetchCart()
-    } catch (err) {
-      console.error(err)
-    }
-  }
-
+  // A skeleton shaped like the cart rows, rather than a spinner that says
+  // nothing about what is arriving.
   if (loading)
     return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-        }}
-      >
-        <div
-          style={{
-            width: '40px',
-            height: '40px',
-            border: '4px solid #ddd',
-            borderTopColor: 'var(--primary)',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-          }}
-        ></div>
+      <div style={{ background: 'var(--background)', minHeight: '100vh' }}>
+        <BuyerNavbar />
+        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '60px 40px' }}>
+          <div className="skeleton" style={{ height: 38, width: '28%', marginBottom: 32 }} />
+          <ListSkeleton rows={3} height={132} />
+        </div>
       </div>
     )
 

@@ -1,50 +1,41 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { useAuth } from '../context/AuthContext'
 import { registerUser } from '../api/authApi'
+import { registerSchema } from '../lib/schemas'
 import GoogleAuthBtn from '../components/GoogleAuthBtn'
 
 export default function Register() {
   const navigate = useNavigate()
   const { setUser } = useAuth()
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPass] = useState(false)
-  const [errors, setErrors] = useState({})
-  const [loading, setLoading] = useState(false)
+  // The setter was previously destructured away, so the eye button had nothing
+  // to call and the field could never be revealed.
+  const [showPass, setShowPass] = useState(false)
   const [gLoading, setGLoading] = useState(false)
-  const [_success, setSuccess] = useState(false)
   const [apiError, setApiError] = useState('')
 
-  const validate = () => {
-    const e = {}
-    if (!name) e.name = 'Full Name is required'
-    if (!email) e.email = 'Email is required'
-    else if (!/\S+@\S+\.\S+/.test(email)) e.email = 'Enter a valid email address'
-    if (!password) e.password = 'Password is required'
-    else if (password.length < 8) e.password = 'Password must be at least 8 characters'
-    return e
-  }
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm({
+    resolver: zodResolver(registerSchema),
+    mode: 'onBlur',
+    defaultValues: { name: '', email: '', password: '' },
+  })
 
-  const handleSubmit = async () => {
+  const loading = isSubmitting
+
+  const onSubmit = async (values) => {
     setApiError('')
-    const e = validate()
-    if (Object.keys(e).length) {
-      setErrors(e)
-      return
-    }
-    setErrors({})
-    setLoading(true)
     try {
-      const data = await registerUser({ name, email, password })
+      const data = await registerUser(values)
       setUser(data.user)
-      setSuccess(true)
       setTimeout(() => navigate('/buyer'), 1500)
     } catch (err) {
       setApiError(err?.response?.data?.message || 'Registration failed. Please try again.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -269,62 +260,109 @@ export default function Register() {
               <div style={S.divLine} />
             </div>
 
-            <div style={S.fieldWrap}>
-              <label style={S.label}>Full Name</label>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <input
-                  placeholder="Enter your name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  style={S.input}
-                />
-              </div>
-              {errors.name && (
-                <div style={{ color: '#F44336', fontSize: '11px', marginTop: '4px' }}>
-                  {errors.name}
+            <form onSubmit={handleSubmit(onSubmit)} noValidate>
+              <div style={S.fieldWrap}>
+                <label style={S.label}>Full Name</label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    placeholder="Enter your name"
+                    autoComplete="name"
+                    aria-invalid={Boolean(errors.name)}
+                    {...register('name')}
+                    style={S.input}
+                  />
                 </div>
-              )}
-            </div>
-
-            <div style={S.fieldWrap}>
-              <label style={S.label}>Email Address</label>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <input
-                  type="email"
-                  placeholder="name@gmail.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  style={S.input}
-                />
+                {errors.name && (
+                  <div style={{ color: '#F44336', fontSize: '11px', marginTop: '4px' }}>
+                    {errors.name.message}
+                  </div>
+                )}
               </div>
-              {errors.email && (
-                <div style={{ color: '#F44336', fontSize: '11px', marginTop: '4px' }}>
-                  {errors.email}
-                </div>
-              )}
-            </div>
 
-            <div style={S.fieldWrap}>
-              <label style={S.label}>Password</label>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  placeholder="Create a strong security password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  style={S.input}
-                />
+              <div style={S.fieldWrap}>
+                <label style={S.label}>Email Address</label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="email"
+                    placeholder="name@gmail.com"
+                    autoComplete="email"
+                    aria-invalid={Boolean(errors.email)}
+                    {...register('email')}
+                    style={S.input}
+                  />
+                </div>
+                {errors.email && (
+                  <div style={{ color: '#F44336', fontSize: '11px', marginTop: '4px' }}>
+                    {errors.email.message}
+                  </div>
+                )}
               </div>
-              {errors.password && (
-                <div style={{ color: '#F44336', fontSize: '11px', marginTop: '4px' }}>
-                  {errors.password}
-                </div>
-              )}
-            </div>
 
-            <button onClick={handleSubmit} disabled={loading} style={S.signinBtn}>
-              {loading ? 'Creating Account...' : 'Register Now →'}
-            </button>
+              <div style={S.fieldWrap}>
+                <label style={S.label}>Password</label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type={showPass ? 'text' : 'password'}
+                    placeholder="Create a strong security password"
+                    autoComplete="new-password"
+                    aria-invalid={Boolean(errors.password)}
+                    {...register('password')}
+                    style={{ ...S.input, paddingRight: 44 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPass((v) => !v)}
+                    aria-label={showPass ? 'Hide password' : 'Show password'}
+                    style={{
+                      position: 'absolute',
+                      right: 12,
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: '#7B84A1',
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: 4,
+                    }}
+                  >
+                    {showPass ? (
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                        <line x1="1" y1="1" x2="23" y2="23" />
+                      </svg>
+                    ) : (
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+                {errors.password && (
+                  <div style={{ color: '#F44336', fontSize: '11px', marginTop: '4px' }}>
+                    {errors.password.message}
+                  </div>
+                )}
+              </div>
+
+              <button type="submit" disabled={loading} style={S.signinBtn}>
+                {loading ? 'Creating Account...' : 'Register Now →'}
+              </button>
+            </form>
 
             <div style={S.registerRow}>
               Already have an account?

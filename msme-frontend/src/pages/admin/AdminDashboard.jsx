@@ -1,7 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 import * as adminApi from '../../api/adminApi'
+import { qk } from '../../lib/queryClient'
+import { useToast } from '../../components/Toast'
 import {
   FaShieldAlt,
   FaUsers,
@@ -169,40 +172,30 @@ const td = { padding: '14px', fontSize: '0.85rem', borderTop: '1px solid #f1f5f9
 export default function AdminDashboard() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const toast = useToast()
+  const queryClient = useQueryClient()
   const [tab, setTab] = useState('users')
 
   // ── stats ────────────────────────────────────────────────────────────────
-  const [stats, setStats] = useState(null)
-  const [statsLoading, setStatsLoading] = useState(true)
-  const [statsError, setStatsError] = useState('')
-
-  const loadStats = useCallback(async () => {
-    setStatsLoading(true)
-    setStatsError('')
-    try {
-      const res = await adminApi.getStats()
-      setStats(res.data)
-    } catch (err) {
-      setStatsError(messageOf(err, 'Could not load platform stats'))
-      setStats(null)
-    } finally {
-      setStatsLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    loadStats()
-  }, [loadStats])
+  const {
+    data: stats = null,
+    isPending: statsLoading,
+    error: statsQueryError,
+  } = useQuery({
+    queryKey: qk.admin.stats(),
+    queryFn: () => adminApi.getStats().then((r) => r.data),
+    // An admin watching the dashboard wants current numbers, but not at the
+    // cost of a request per re-render.
+    staleTime: 15_000,
+  })
+  const statsError = statsQueryError
+    ? messageOf(statsQueryError, 'Could not load platform stats')
+    : ''
 
   // ── users ────────────────────────────────────────────────────────────────
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [userPage, setUserPage] = useState(1)
-  const [users, setUsers] = useState([])
-  const [usersMeta, setUsersMeta] = useState(null)
-  const [usersLoading, setUsersLoading] = useState(true)
-  const [usersError, setUsersError] = useState('')
-  const [busyUserId, setBusyUserId] = useState(null)
 
   // Debounced so a five-letter search is one request, not five.
   useEffect(() => {
@@ -213,27 +206,50 @@ export default function AdminDashboard() {
     return () => clearTimeout(timer)
   }, [searchInput])
 
-  const loadUsers = useCallback(async () => {
-    setUsersLoading(true)
-    setUsersError('')
-    try {
-      const res = await adminApi.getUsers({ page: userPage, limit: PAGE_SIZE, search })
-      setUsers(res.data)
-      setUsersMeta(res.pagination)
-    } catch (err) {
-      setUsersError(messageOf(err, 'Could not load users'))
-      setUsers([])
-      setUsersMeta(null)
-    } finally {
-      setUsersLoading(false)
-    }
-  }, [userPage, search])
+  const usersQuery = useQuery({
+    queryKey: qk.admin.users({ page: userPage, search }),
+    queryFn: () => adminApi.getUsers({ page: userPage, limit: PAGE_SIZE, search }),
+    staleTime: 15_000,
+    // Holds the current page on screen while the next one loads, so paging
+    // does not flash an empty table.
+    placeholderData: (previous) => previous,
+  })
+  const users = usersQuery.data?.data ?? []
+  const usersMeta = usersQuery.data?.pagination ?? null
+  const usersLoading = usersQuery.isPending
+  const usersError = usersQuery.error ? messageOf(usersQuery.error, 'Could not load users') : ''
 
-  useEffect(() => {
-    loadUsers()
-  }, [loadUsers])
+  const statusMutation = useMutation({
+    mutationFn: ({ id, isActive }) => adminApi.setUserStatus(id, isActive),
 
-  const toggleStatus = async (target) => {
+    onMutate: async ({ id, isActive }) => {
+      const key = qk.admin.users({ page: userPage, search })
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData(key)
+
+      // Optimistic: the row flips immediately rather than after the round trip.
+      queryClient.setQueryData(key, (old) =>
+        old ? { ...old, data: old.data.map((u) => (u._id === id ? { ...u, isActive } : u)) } : old
+      )
+      return { previous, key }
+    },
+
+    onError: (err, _vars, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(context.key, context.previous)
+      }
+      toast.error(messageOf(err, 'Could not change that account'))
+    },
+
+    onSuccess: (res) => {
+      toast.success(res.message || 'Account updated')
+      queryClient.invalidateQueries({ queryKey: qk.admin.stats() })
+    },
+  })
+
+  const busyUserId = statusMutation.isPending ? statusMutation.variables?.id : null
+
+  const toggleStatus = (target) => {
     const next = !target.isActive
     if (
       !next &&
@@ -243,63 +259,33 @@ export default function AdminDashboard() {
     ) {
       return
     }
-
-    setBusyUserId(target._id)
-    setUsersError('')
-    try {
-      const res = await adminApi.setUserStatus(target._id, next)
-      // Patch the row in place rather than refetching the page, so the list
-      // does not jump if the ordering or the search results have shifted.
-      setUsers((prev) =>
-        prev.map((u) => (u._id === target._id ? { ...u, isActive: res.data.isActive } : u))
-      )
-      loadStats()
-    } catch (err) {
-      setUsersError(messageOf(err, 'Could not change that account'))
-    } finally {
-      setBusyUserId(null)
-    }
+    statusMutation.mutate({ id: target._id, isActive: next })
   }
 
   // ── orders ───────────────────────────────────────────────────────────────
   const [statusFilter, setStatusFilter] = useState('All')
   const [orderPage, setOrderPage] = useState(1)
-  const [orders, setOrders] = useState([])
-  const [ordersMeta, setOrdersMeta] = useState(null)
-  const [orderStatuses, setOrderStatuses] = useState([])
-  const [ordersLoading, setOrdersLoading] = useState(true)
-  const [ordersError, setOrdersError] = useState('')
 
-  const loadOrders = useCallback(async () => {
-    setOrdersLoading(true)
-    setOrdersError('')
-    try {
-      const res = await adminApi.getOrders({
+  const ordersQuery = useQuery({
+    queryKey: qk.admin.orders({ page: orderPage, status: statusFilter }),
+    queryFn: () =>
+      adminApi.getOrders({
         page: orderPage,
         limit: PAGE_SIZE,
         status: statusFilter === 'All' ? '' : statusFilter,
-      })
-      setOrders(res.data)
-      setOrdersMeta(res.pagination)
-      if (res.statuses) setOrderStatuses(res.statuses)
-    } catch (err) {
-      setOrdersError(messageOf(err, 'Could not load orders'))
-      setOrders([])
-      setOrdersMeta(null)
-    } finally {
-      setOrdersLoading(false)
-    }
-  }, [orderPage, statusFilter])
+      }),
+    staleTime: 15_000,
+    placeholderData: (previous) => previous,
+  })
+  const orders = ordersQuery.data?.data ?? []
+  const ordersMeta = ordersQuery.data?.pagination ?? null
+  const orderStatuses = ordersQuery.data?.statuses ?? []
+  const ordersLoading = ordersQuery.isPending
+  const ordersError = ordersQuery.error ? messageOf(ordersQuery.error, 'Could not load orders') : ''
 
-  useEffect(() => {
-    loadOrders()
-  }, [loadOrders])
-
-  const refreshAll = () => {
-    loadStats()
-    if (tab === 'users') loadUsers()
-    else loadOrders()
-  }
+  // Marking everything stale is enough: React Query refetches whatever is
+  // actually mounted, so this cannot fall out of step with the visible tab.
+  const refreshAll = () => queryClient.invalidateQueries()
 
   // ── render ───────────────────────────────────────────────────────────────
   return (

@@ -5,6 +5,25 @@ const Product = require('../models/Product')
 exports.placeOrder = async (req, res) => {
   try {
     const { shippingAddress } = req.body
+
+    // The order stores its own copy of the address, so it has to be checked
+    // here too - a checkout never touches savedAddresses and would otherwise
+    // skip the schema validators entirely. Same rules as models/User.js and
+    // the client's src/lib/schemas.js.
+    const addressErrors = []
+    for (const field of ['name', 'phone', 'street', 'city', 'state', 'pincode']) {
+      if (!String(shippingAddress?.[field] || '').trim()) addressErrors.push(`${field} is required`)
+    }
+    if (shippingAddress?.pincode && !/^\d{6}$/.test(shippingAddress.pincode)) {
+      addressErrors.push('Pincode must be exactly 6 digits')
+    }
+    if (shippingAddress?.phone && !/^\d{10}$/.test(shippingAddress.phone)) {
+      addressErrors.push('Phone must be exactly 10 digits')
+    }
+    if (addressErrors.length) {
+      return res.status(400).json({ success: false, message: addressErrors.join(', ') })
+    }
+
     const cart = await Cart.findOne({ user: req.user.id }).populate('items.product')
 
     if (!cart || cart.items.length === 0) {

@@ -1,32 +1,53 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import axios from 'axios'
-import http from '../../api/http'
 import { FaArrowLeft, FaCheck, FaMapMarkerAlt, FaCrosshairs } from 'react-icons/fa'
 import { fetchStates } from '../../services/locationService'
+import { checkoutAddressSchema } from '../../lib/schemas'
+import { ListSkeleton } from '../../components/Skeletons'
+import { useCart } from '../../hooks/useCart'
+import { usePlaceOrder } from '../../hooks/useOrders'
+import { useToast } from '../../components/Toast'
 
 const steps = ['Address', 'Order Summary', 'Payment']
 
 export default function Checkout() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [step, setStep] = useState(0)
-  const [cart, setCart] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [placing, setPlacing] = useState(false)
-  const [address, setAddress] = useState({
-    name: '',
-    phone: '',
-    street: '',
-    city: '',
-    state: '',
-    pincode: '',
-  })
   const [paymentMethod, setPaymentMethod] = useState('COD')
   const [gettingLocation, setGettingLocation] = useState(false)
   const [apiStates, setApiStates] = useState([])
 
+  const { data: cart, isPending: loading, isError } = useCart()
+  const placeOrderMutation = usePlaceOrder()
+  const placing = placeOrderMutation.isPending
+
+  // checkoutAddressSchema carries the same 6-digit pincode and 10-digit phone
+  // rules the API enforces, so a valid form cannot produce a 400.
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    trigger,
+    formState: { errors },
+  } = useForm({
+    resolver: zodResolver(checkoutAddressSchema),
+    mode: 'onBlur',
+    defaultValues: { name: '', phone: '', street: '', city: '', state: '', pincode: '' },
+  })
+
+  // The review step and the order payload both read the live values.
+  const address = watch()
+
   const handleGetCurrentLocation = () => {
-    if (!navigator.geolocation) return alert('Geolocation is not supported by your browser')
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported by your browser')
+      return
+    }
     setGettingLocation(true)
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -37,16 +58,19 @@ export default function Checkout() {
           )
           if (res.data && res.data.address) {
             const addr = res.data.address
-            setAddress((prev) => ({
-              ...prev,
-              pincode: addr.postcode || '',
-              city: addr.city || addr.town || addr.village || addr.county || '',
-              state: addr.state || '',
-              street:
-                (addr.road || '') +
+            // shouldValidate so a location-filled pincode is checked the same
+            // way a typed one is.
+            const opts = { shouldValidate: true, shouldDirty: true }
+            setValue('pincode', (addr.postcode || '').replace(/\D/g, '').slice(0, 6), opts)
+            setValue('city', addr.city || addr.town || addr.village || addr.county || '', opts)
+            setValue('state', addr.state || '', opts)
+            setValue(
+              'street',
+              (addr.road || '') +
                 (addr.house_number ? ', ' + addr.house_number : '') +
                 (addr.suburb ? ', ' + addr.suburb : ''),
-            }))
+              opts
+            )
           }
         } catch (err) {
           console.error('Geo error', err)
@@ -55,72 +79,45 @@ export default function Checkout() {
         }
       },
       (_err) => {
-        alert('Unable to retrieve your location. Please grant permission.')
+        toast.error('Unable to retrieve your location. Please grant permission.')
         setGettingLocation(false)
       }
     )
   }
 
   useEffect(() => {
-    fetchCart()
     fetchStates().then(setApiStates)
   }, [])
 
-  const fetchCart = async () => {
-    try {
-      const { data } = await http.get('/cart', { withCredentials: true })
-      setCart(data.data)
-    } catch (_err) {
-      navigate('/login')
-    } finally {
-      setLoading(false)
-    }
-  }
+  useEffect(() => {
+    // The cart query is the session check too: a signed-out caller 401s, and
+    // the shared client has already tried to refresh by the time this runs.
+    if (isError) navigate('/login')
+  }, [isError, navigate])
 
   const subtotal =
     cart?.items?.reduce((acc, i) => acc + (i.product?.price || 0) * i.quantity, 0) || 0
 
+  // Step 1 of 3. Validating here rather than at the end means a bad pincode is
+  // caught before the user has read the order summary and chosen a payment
+  // method.
+  const goToSummary = handleSubmit(() => setStep(1))
+
   const handlePlaceOrder = async () => {
-    if (!address.street || !address.city || !address.pincode || !address.phone)
-      return alert('Please fill all address fields')
-    setPlacing(true)
-    try {
-      const { data } = await http.post(
-        '/orders/checkout',
-        {
-          shippingAddress: address,
-          paymentMethod,
-        },
-        { withCredentials: true }
-      )
-      navigate('/order-success', { state: { order: data.data } })
-    } catch (err) {
-      alert(err.response?.data?.message || 'Order placement failed')
-    } finally {
-      setPlacing(false)
+    const valid = await trigger()
+    if (!valid) {
+      setStep(0)
+      toast.error('Please correct the delivery address')
+      return
     }
+    placeOrderMutation.mutate({ shippingAddress: address, paymentMethod })
   }
 
   if (loading)
     return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-        }}
-      >
-        <div
-          style={{
-            width: '40px',
-            height: '40px',
-            border: '4px solid #ddd',
-            borderTopColor: 'var(--primary)',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-          }}
-        ></div>
+      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '60px 40px' }}>
+        <div className="skeleton" style={{ height: 34, width: '24%', marginBottom: 28 }} />
+        <ListSkeleton rows={4} height={110} />
       </div>
     )
 
@@ -317,62 +314,89 @@ export default function Checkout() {
                   <input
                     className="input-field"
                     placeholder="Full name"
-                    value={address.name}
-                    onChange={(e) => setAddress({ ...address, name: e.target.value })}
+                    aria-invalid={Boolean(errors.name)}
+                    {...register('name')}
                   />
+                  {errors.name && (
+                    <div style={{ color: '#DC2626', fontSize: 11, marginTop: 5, fontWeight: 600 }}>
+                      {errors.name.message}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="input-label">CONTACT NUMBER</label>
                   <input
                     className="input-field"
                     placeholder="10-digit mobile"
-                    value={address.phone}
-                    onChange={(e) =>
-                      setAddress({
-                        ...address,
-                        phone: e.target.value.replace(/\D/g, '').slice(0, 10),
-                      })
-                    }
+                    inputMode="numeric"
+                    aria-invalid={Boolean(errors.phone)}
+                    {...register('phone', {
+                      // Strip anything that is not a digit as it is typed, so
+                      // the field can only ever hold what the schema allows.
+                      onChange: (e) => {
+                        e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10)
+                      },
+                    })}
                   />
+                  {errors.phone && (
+                    <div style={{ color: '#DC2626', fontSize: 11, marginTop: 5, fontWeight: 600 }}>
+                      {errors.phone.message}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="input-label">POSTAL CODE</label>
                   <input
                     className="input-field"
                     placeholder="6-digit PIN"
-                    value={address.pincode}
-                    onChange={(e) =>
-                      setAddress({
-                        ...address,
-                        pincode: e.target.value.replace(/\D/g, '').slice(0, 6),
-                      })
-                    }
+                    inputMode="numeric"
+                    aria-invalid={Boolean(errors.pincode)}
+                    {...register('pincode', {
+                      onChange: (e) => {
+                        e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6)
+                      },
+                    })}
                   />
+                  {errors.pincode && (
+                    <div style={{ color: '#DC2626', fontSize: 11, marginTop: 5, fontWeight: 600 }}>
+                      {errors.pincode.message}
+                    </div>
+                  )}
                 </div>
                 <div style={{ gridColumn: 'span 2' }}>
                   <label className="input-label">STREET ADDRESS</label>
                   <input
                     className="input-field"
                     placeholder="Building, Street, Area"
-                    value={address.street}
-                    onChange={(e) => setAddress({ ...address, street: e.target.value })}
+                    aria-invalid={Boolean(errors.street)}
+                    {...register('street')}
                   />
+                  {errors.street && (
+                    <div style={{ color: '#DC2626', fontSize: 11, marginTop: 5, fontWeight: 600 }}>
+                      {errors.street.message}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="input-label">CITY</label>
                   <input
                     className="input-field"
                     placeholder="City"
-                    value={address.city}
-                    onChange={(e) => setAddress({ ...address, city: e.target.value })}
+                    aria-invalid={Boolean(errors.city)}
+                    {...register('city')}
                   />
+                  {errors.city && (
+                    <div style={{ color: '#DC2626', fontSize: 11, marginTop: 5, fontWeight: 600 }}>
+                      {errors.city.message}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="input-label">STATE</label>
                   <select
                     className="input-field"
-                    value={address.state}
-                    onChange={(e) => setAddress({ ...address, state: e.target.value })}
+                    aria-invalid={Boolean(errors.state)}
+                    {...register('state')}
                   >
                     <option value="">Choose State</option>
                     {apiStates.map((s) => (
@@ -381,13 +405,18 @@ export default function Checkout() {
                       </option>
                     ))}
                   </select>
+                  {errors.state && (
+                    <div style={{ color: '#DC2626', fontSize: 11, marginTop: 5, fontWeight: 600 }}>
+                      {errors.state.message}
+                    </div>
+                  )}
                 </div>
               </div>
 
               <button
                 className="btn-primary"
                 style={{ padding: '18px', borderRadius: '12px', fontSize: '0.9rem' }}
-                onClick={() => setStep(1)}
+                onClick={goToSummary}
               >
                 CONTINUE TO SUMMARY
               </button>

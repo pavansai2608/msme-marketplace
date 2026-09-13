@@ -15,3 +15,9 @@ target/
 .pytest_cache/
 .coverage
 coverage/
+
+# Kubernetes secrets. Only k8s/base/secret.example.yaml (placeholders) is
+# committed; any filled-in copy stays local.
+k8s/secret.yaml
+k8s/**/secret.yaml
+!k8s/base/secret.example.yaml

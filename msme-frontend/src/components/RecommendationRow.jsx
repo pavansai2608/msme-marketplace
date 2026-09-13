@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 // Deliberately raw axios, not the shared http client: this row is optional
 // decoration on a public endpoint. Routing it through the refresh/redirect
 // interceptor could bounce a browsing visitor to /login over a row that is
-// meant to fail silently.
+// meant to fail silently. React Query still manages the caching and retries.
 import axios from 'axios'
 import { FaStore } from 'react-icons/fa'
+import { qk } from '../lib/queryClient'
 
 const CardSkeleton = () => (
   <div
@@ -34,36 +35,25 @@ const CardSkeleton = () => (
  * showing an error the shopper cannot act on.
  */
 export default function RecommendationRow({ title, endpoint, k = 10 }) {
-  const [products, setProducts] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [failed, setFailed] = useState(false)
   const navigate = useNavigate()
 
-  useEffect(() => {
-    let cancelled = false
-
-    const load = async () => {
-      setLoading(true)
-      setFailed(false)
-      try {
-        const { data } = await axios.get(endpoint, {
-          params: { k },
-          withCredentials: true,
-        })
-        if (cancelled) return
-        setProducts(Array.isArray(data?.data) ? data.data : [])
-      } catch {
-        if (!cancelled) setFailed(true)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [endpoint, k])
+  const {
+    data: products = [],
+    isPending: loading,
+    isError: failed,
+  } = useQuery({
+    queryKey: qk.recommendations(endpoint, k),
+    queryFn: () =>
+      axios
+        .get(endpoint, { params: { k }, withCredentials: true })
+        .then((r) => (Array.isArray(r.data?.data) ? r.data.data : [])),
+    // Recommendations are computed from a model that reindexes occasionally;
+    // five minutes of cache is plenty and keeps the row instant on navigation.
+    staleTime: 5 * 60_000,
+    // One retry, then give up quietly. The recommender being down must never
+    // hold up the page it decorates.
+    retry: 1,
+  })
 
   // Hide the row entirely on failure or when there is nothing to show.
   if (failed) return null

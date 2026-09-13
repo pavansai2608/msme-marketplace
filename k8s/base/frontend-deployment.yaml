@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: msme-frontend
+  labels:
+    app.kubernetes.io/name: msme-frontend
+    app.kubernetes.io/part-of: msme-marketplace
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: msme-frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: msme-frontend
+        app.kubernetes.io/part-of: msme-marketplace
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # uid 101 is the `nginx` user in the official alpine image.
+        runAsUser: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          image: msme-frontend:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Only used if nginx proxies /api itself. Under the ingress, /api
+            # is routed to the backend service before it reaches nginx.
+            - name: BACKEND_URL
+              value: "http://msme-backend:5000"
+          # /healthz is served by nginx directly and never touches the backend,
+          # so the frontend is not marked unready because an API is down.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 25m
+              memory: 48Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # nginx renders its config template into conf.d and keeps caches and
+          # its pid file elsewhere; with a read-only root each needs a volume.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: nginx-conf
+          emptyDir: {}
+        - name: nginx-cache
+          emptyDir: {}

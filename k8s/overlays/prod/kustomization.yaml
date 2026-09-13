@@ -1,0 +1,78 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: msme
+
+resources:
+  - ../../base
+
+# Pinned by digest or immutable tag in a real pipeline; `latest` here is a
+# placeholder for whatever the release job stamps in.
+images:
+  - name: msme-backend
+    newName: ghcr.io/pavansai2608/msme-backend
+    newTag: latest
+  - name: msme-frontend
+    newName: ghcr.io/pavansai2608/msme-frontend
+    newTag: latest
+  - name: msme-recommender
+    newName: ghcr.io/pavansai2608/msme-recommender
+    newTag: latest
+
+patches:
+  # Production runs behind TLS, so CLIENT_URL and the OAuth callback are https
+  # and on the real host. NODE_ENV=production also makes the auth cookies
+  # Secure, which requires https to work at all.
+  - target:
+      kind: ConfigMap
+      name: msme-config
+    patch: |-
+      - op: replace
+        path: /data/CLIENT_URL
+        value: https://msme.example.com
+      - op: replace
+        path: /data/GOOGLE_CALLBACK_URL
+        value: https://msme.example.com/api/auth/google/callback
+
+  - target:
+      kind: Ingress
+      name: msme-ingress
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: msme.example.com
+      - op: add
+        path: /spec/tls
+        value:
+          - hosts:
+              - msme.example.com
+            secretName: msme-tls
+      - op: add
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt-prod
+      - op: add
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1force-ssl-redirect
+        value: "true"
+
+  # More headroom than dev; the HPA still starts at 2 and grows to 5.
+  - target:
+      kind: Deployment
+      name: msme-backend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 250m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "1"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 768Mi
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: msme-backend
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2

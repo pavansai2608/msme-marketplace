@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: msme
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - backend-deployment.yaml
+  - backend-service.yaml
+  - frontend-deployment.yaml
+  - frontend-service.yaml
+  - recommender-deployment.yaml
+  - recommender-service.yaml
+  - ingress.yaml
+  - hpa.yaml
+
+# secret.example.yaml is deliberately NOT listed. The real Secret is created
+# out of band from msme-backend/.env so no credential is ever committed.
+
+# `labels` rather than the deprecated `commonLabels`. includeSelectors is
+# false by default here, which is what we want: adding a label to a Deployment
+# selector after the fact is an immutable-field error on an existing object.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: msme-marketplace

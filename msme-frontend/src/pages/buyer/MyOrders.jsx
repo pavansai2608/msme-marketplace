@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import http from '../../api/http'
 import { FaArrowLeft, FaBox, FaTruck, FaCheckCircle, FaShippingFast } from 'react-icons/fa'
 import BuyerNavbar from '../../components/BuyerNavbar'
+import { ListSkeleton } from '../../components/Skeletons'
+import { useMyOrders } from '../../hooks/useOrders'
 
 const statusSteps = ['Ordered', 'Dispatched', 'Shipped', 'Delivered']
 
@@ -15,44 +15,16 @@ const statusIcon = {
 
 export default function MyOrders() {
   const navigate = useNavigate()
-  const [orders, setOrders] = useState([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    fetchOrders()
-  }, [])
-
-  const fetchOrders = async () => {
-    try {
-      const { data } = await http.get('/orders/my-orders', { withCredentials: true })
-      setOrders(data.data)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const { data: orders = [], isPending: loading } = useMyOrders()
 
   if (loading)
     return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-        }}
-      >
-        <div
-          style={{
-            width: '40px',
-            height: '40px',
-            border: '4px solid #ddd',
-            borderTopColor: 'var(--primary)',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-          }}
-        ></div>
+      <div style={{ background: 'var(--background)', minHeight: '100vh' }}>
+        <BuyerNavbar />
+        <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '60px 40px' }}>
+          <div className="skeleton" style={{ height: 34, width: '22%', marginBottom: 32 }} />
+          <ListSkeleton rows={3} height={180} />
+        </div>
       </div>
     )
 

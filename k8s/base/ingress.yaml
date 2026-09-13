@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: msme-ingress
+  labels:
+    app.kubernetes.io/part-of: msme-marketplace
+  annotations:
+    # The backend mounts its routes at /api already, so the path is passed
+    # through untouched - no rewrite target.
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: msme.local
+      http:
+        paths:
+          # Most specific first: /api must win over /, or every API call would
+          # be served the SPA's index.html instead.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: msme-backend
+                port:
+                  number: 5000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: msme-frontend
+                port:
+                  number: 80
