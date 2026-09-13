@@ -42,6 +42,16 @@ const browserGlobals = {
   atob: 'readonly',
 }
 
+// The Playwright suite runs in Node, but the bodies of page.evaluate() run in
+// the browser - so both sets are in scope in the same file.
+const nodeGlobals = {
+  process: 'readonly',
+  console: 'readonly',
+  Buffer: 'readonly',
+  __dirname: 'readonly',
+  URL: 'readonly',
+}
+
 const serviceWorkerGlobals = {
   self: 'readonly',
   caches: 'readonly',
@@ -51,7 +61,15 @@ const serviceWorkerGlobals = {
 
 module.exports = [
   {
-    ignores: ['node_modules/**', 'dist/**', 'build/**', 'eslint.config.js'],
+    ignores: [
+      'node_modules/**',
+      'dist/**',
+      'build/**',
+      'eslint.config.js',
+      // Playwright output, regenerated on every run.
+      'playwright-report/**',
+      'test-results/**',
+    ],
   },
   {
     files: ['src/**/*.{js,jsx}'],
@@ -102,6 +120,23 @@ module.exports = [
       // hooks
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+    },
+  },
+  {
+    files: ['e2e/**/*.js', 'playwright.config.js'],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      globals: { ...nodeGlobals, ...browserGlobals },
+    },
+    rules: {
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-undef': 'error',
+      'no-dupe-keys': 'error',
+      'no-unreachable': 'error',
+      'no-const-assign': 'error',
+      'no-var': 'warn',
+      'prefer-const': 'warn',
     },
   },
   {
