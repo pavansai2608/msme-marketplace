@@ -24,9 +24,18 @@ exports.verifyToken = async (req, res, next) => {
 
     // Role and identity are read from the database on every request, so a
     // deleted or demoted user loses access immediately.
-    const user = await User.findById(decoded.id).select('_id name email role tokenVersion')
+    const user = await User.findById(decoded.id).select('_id name email role tokenVersion isActive')
     if (!user) {
       return res.status(401).json({ success: false, message: 'Not authorized' })
+    }
+
+    // Deactivated by an admin. Checked BEFORE tokenVersion so the answer is
+    // always 403 regardless of how the token was minted, and 403 rather than
+    // 401 so the client does not try to refresh its way out of a suspension.
+    if (user.isActive === false) {
+      return res
+        .status(403)
+        .json({ success: false, message: 'Account deactivated', code: 'account_inactive' })
     }
 
     // Token family revoked since this access token was minted.
@@ -59,8 +68,10 @@ exports.optionalAuth = async (req, res, next) => {
     if (!token) return next()
 
     const decoded = verifyAccessToken(token)
-    const user = await User.findById(decoded.id).select('_id name email role tokenVersion')
-    if (user && (decoded.v || 0) === (user.tokenVersion || 0)) {
+    const user = await User.findById(decoded.id).select('_id name email role tokenVersion isActive')
+    // A deactivated user falls through as anonymous rather than being rejected,
+    // since these routes must keep working for signed-out visitors anyway.
+    if (user && user.isActive !== false && (decoded.v || 0) === (user.tokenVersion || 0)) {
       req.user = {
         id: user._id.toString(),
         _id: user._id,

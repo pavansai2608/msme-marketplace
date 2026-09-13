@@ -50,6 +50,7 @@ app.use('/api/products', require('./routes/productRoutes'))
 app.use('/api/orders', require('./routes/orderRoutes'))
 app.use('/api/cart', require('./routes/cartRoutes'))
 app.use('/api/schemes', require('./routes/schemeRoutes'))
+app.use('/api/admin', require('./routes/adminRoutes'))
 
 app.get('/health', (req, res) => res.json({ status: 'MSME API running ✅' }))
 
