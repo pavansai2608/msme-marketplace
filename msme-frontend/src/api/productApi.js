@@ -10,8 +10,6 @@ export const getProducts = ({ search = '', category = 'All' } = {}) => {
 
 export const getProduct = (id) => http.get(`/products/${id}`).then((r) => r.data)
 export const getCategories = () => http.get('/products/categories').then((r) => r.data)
-export const getSimilarProducts = (id, k = 10) =>
-  http.get(`/products/${id}/similar?k=${k}`).then((r) => r.data)
 export const getSellerProducts = () => http.get('/products/seller/me').then((r) => r.data)
 export const addProduct = (data) => http.post('/products', data).then((r) => r.data)
 export const updateProduct = (id, data) => http.put(`/products/${id}`, data).then((r) => r.data)

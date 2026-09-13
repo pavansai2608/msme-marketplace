@@ -17,11 +17,6 @@ export const BUYER = {
   name: 'E2E Buyer',
 }
 
-export const SELLER = {
-  email: process.env.E2E_SELLER_EMAIL || 'e2e-seller@msme.local',
-  password: process.env.E2E_PASSWORD || 'E2ePassw0rd!',
-}
-
 /** The one product the shopping flow searches for, added by seedE2E.js. */
 export const FIXTURE_PRODUCT = {
   name: 'E2E Fixture Brass Lamp',
