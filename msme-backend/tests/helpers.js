@@ -21,11 +21,6 @@ const csrfOf = (cookieString) => (String(cookieString).match(/csrfToken=([^;]+)/
 
 const csrfFrom = (res) => (namedCookie(res, 'csrfToken') || '').split('=')[1] || ''
 
-// A request carrying both the cookies and the matching CSRF header, which is
-// what the real client does.
-const authed = (res, method, url) =>
-  request(app)[method](url).set('Cookie', cookieFrom(res)).set('x-csrf-token', csrfFrom(res))
-
 const rawTokenCookie = (res) =>
   (res.headers['set-cookie'] || []).find((c) => c.startsWith('token=')) || ''
 
@@ -63,7 +58,6 @@ module.exports = {
   namedCookie,
   csrfFrom,
   csrfOf,
-  authed,
   rawTokenCookie,
   registerUser,
   loginUser,

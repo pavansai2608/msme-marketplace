@@ -191,5 +191,3 @@ export function ListSkeleton({ rows = 5, height = 92 }) {
     </div>
   )
 }
-
-export default Bar

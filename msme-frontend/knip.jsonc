@@ -1,0 +1,40 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+
+  // src/main.jsx and playwright.config.js are inferred; listing them again
+  // only earns a redundant-entry hint. Only what knip cannot work out is here.
+  "entry": [
+    // The Playwright setup project is selected by a REGEX in
+    // playwright.config.js (`testMatch: /auth\\.setup\\.js/`), not by an
+    // import. Every spec depends on the cookie jar it writes, so knip listing
+    // it as an unused file is the most dangerous false positive in this repo:
+    // deleting it would break the whole E2E suite.
+    "e2e/auth.setup.js",
+    "e2e/**/*.spec.js"
+  ],
+
+  // public/ is deliberately outside this glob. public/sw.js is not part of the
+  // module graph: it is registered at runtime by string path in src/main.jsx
+  // (`navigator.serviceWorker.register('/sw.js')`) and copied into dist/ by
+  // vite as a public asset, so nothing ever imports it. With public/ in scope
+  // knip reports it as an unused file and deleting it would silently drop the
+  // service worker from the build.
+  "project": ["src/**/*.{js,jsx}", "e2e/**/*.js", "*.js"]
+
+  // Known false positives, deliberately NOT suppressed - a blanket ignore here
+  // would also hide genuinely new dead code in the same files:
+  //
+  //   src/lib/schemas.js  password / email / phone / pincode / optionalPhone /
+  //                       productSchema
+  //   src/components/Toast.jsx    ToastContext
+  //   src/components/Skeletons.jsx ProductCardSkeleton
+  //   src/api/http.js             readCookie
+  //   e2e/fixture-data.js         RUN_PREFIX
+  //   e2e/fixtures.js             emptyCart
+  //
+  //     All reported as unused exports. The *exports* are genuinely
+  //     unconsumed, but every one of these symbols is used inside its own
+  //     module - they are building blocks, not dead code. Only the `export`
+  //     keyword is removable, and that is an API-surface decision rather than
+  //     a cleanup.
+}

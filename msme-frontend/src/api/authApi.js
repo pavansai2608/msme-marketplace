@@ -16,6 +16,4 @@ export const probeSession = () =>
 export const updateProfile = (data) => http.put('/auth/update-profile', data).then((r) => r.data)
 export const becomeSeller = (data) => http.post('/auth/become-seller', data).then((r) => r.data)
 export const logoutUser = () => http.post('/auth/logout').then((r) => r.data)
-export const refreshSession = () => http.post('/auth/refresh').then((r) => r.data)
-export const pingAuth = () => http.get('/auth/ping').then((r) => r.data)
 export const googleAuthURL = () => `/api/auth/google`

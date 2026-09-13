@@ -38,16 +38,3 @@ export function useProduct(id) {
     staleTime: CATALOGUE_STALE,
   })
 }
-
-export function useSimilarProducts(id, k = 10) {
-  return useQuery({
-    queryKey: [...qk.product(id), 'similar', k],
-    queryFn: () => productApi.getSimilarProducts(id, k),
-    select: (res) => res.data ?? [],
-    enabled: Boolean(id),
-    staleTime: 5 * 60_000,
-    // An optional row. If the recommender is down the page must still work,
-    // so a failure here is silent rather than retried hard.
-    retry: 1,
-  })
-}
