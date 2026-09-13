@@ -1,331 +1,47 @@
-import { useState, useEffect, useRef } from 'react'
-import { useAuth } from '../../context/AuthContext'
-import http from '../../api/http'
-import {
-  FaChevronLeft,
-  FaChevronRight,
-  FaStar,
-  FaShoppingBag,
-  FaHeart,
-  FaRegHeart,
-  FaStore,
-} from 'react-icons/fa'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { FaChevronLeft, FaChevronRight, FaShoppingBag, FaStore } from 'react-icons/fa'
 import BuyerNavbar from '../../components/BuyerNavbar'
 import RecommendationRow from '../../components/RecommendationRow'
-
-const ProductCard = ({ p, wishlistIds = [], toggleWishlist }) => {
-  const [currentImg] = useState(0)
-  const navigate = useNavigate()
-
-  return (
-    <div
-      className="product-card-premium"
-      onClick={() => navigate(`/product/${p._id}`)}
-      style={{
-        padding: '0',
-        background: '#ffffff',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        cursor: 'pointer',
-        position: 'relative',
-        borderRadius: '24px',
-        border: '1px solid #F3F4F6',
-        transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-8px)'
-        e.currentTarget.style.boxShadow = '0 20px 40px rgba(0,0,0,0.08)'
-        e.currentTarget.style.borderColor = '#000'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'translateY(0)'
-        e.currentTarget.style.boxShadow = 'none'
-        e.currentTarget.style.borderColor = '#F3F4F6'
-      }}
-    >
-      <div
-        onClick={(e) => {
-          e.stopPropagation()
-          toggleWishlist(p._id)
-        }}
-        style={{
-          position: 'absolute',
-          top: '20px',
-          right: '20px',
-          zIndex: 10,
-          cursor: 'pointer',
-          transition: 'all 0.2s',
-        }}
-        onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.1)')}
-        onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
-      >
-        {wishlistIds.includes(p._id) ? (
-          <FaHeart color="#000" size={18} />
-        ) : (
-          <FaRegHeart color="#9CA3AF" size={18} />
-        )}
-      </div>
-
-      <div
-        style={{
-          height: '340px',
-          background: 'transparent',
-          position: 'relative',
-          overflow: 'hidden',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '0',
-        }}
-      >
-        <img
-          src={p.images[currentImg] || 'https://via.placeholder.com/400?text=No+Image'}
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            transition: 'transform 1.2s cubic-bezier(0.16, 1, 0.3, 1)',
-          }}
-          alt={p.name}
-          onError={(e) => {
-            e.target.src = 'https://via.placeholder.com/400?text=Image+Load+Error'
-          }}
-        />
-
-        {p.totalStock === 0 && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(255,255,255,0.6)',
-              backdropFilter: 'blur(4px)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 2,
-            }}
-          >
-            <span
-              style={{
-                background: '#000',
-                color: 'white',
-                padding: '10px 20px',
-                borderRadius: '10px',
-                fontWeight: 800,
-                fontSize: '0.65rem',
-                letterSpacing: '2px',
-              }}
-            >
-              SOLD OUT
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div style={{ padding: '24px', flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-        <div
-          style={{
-            color: '#71717A',
-            fontSize: '0.65rem',
-            fontWeight: 800,
-            textTransform: 'uppercase',
-            letterSpacing: '1.2px',
-            marginBottom: '6px',
-          }}
-        >
-          {p.category}
-        </div>
-        <h4
-          style={{
-            fontSize: '1rem',
-            fontWeight: 800,
-            marginBottom: '4px',
-            lineHeight: 1.3,
-            color: '#09090B',
-            fontFamily: "'Sora', sans-serif",
-          }}
-        >
-          {p.name}
-        </h4>
-        <div
-          style={{
-            fontSize: '0.7rem',
-            color: 'var(--secondary)',
-            fontWeight: 700,
-            marginBottom: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-          }}
-        >
-          <FaStore size={10} /> {p.seller?.businessName || 'MSME Merchant'}
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginTop: 'auto',
-          }}
-        >
-          <div>
-            <div
-              style={{
-                fontSize: '1.25rem',
-                fontWeight: 900,
-                color: '#09090B',
-                letterSpacing: '-0.5px',
-              }}
-            >
-              ₹{p.price.toLocaleString()}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '4px' }}>
-              <FaStar color="#111111" size={10} />
-              <span style={{ fontWeight: 800, fontSize: '0.75rem', color: '#09090B' }}>
-                {p.rating || '4.8'}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-const ProductSkeleton = () => (
-  <div
-    style={{
-      background: 'white',
-      borderRadius: '24px',
-      overflow: 'hidden',
-      border: '1px solid #F3F4F6',
-    }}
-  >
-    <div className="skeleton" style={{ height: '340px', width: '100%', borderRadius: 0 }}></div>
-    <div
-      style={{
-        padding: '28px',
-        flexGrow: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '16px',
-      }}
-    >
-      <div className="skeleton" style={{ height: '10px', width: '30%' }}></div>
-      <div className="skeleton" style={{ height: '24px', width: '80%' }}></div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginTop: 'auto',
-        }}
-      >
-        <div className="skeleton" style={{ height: '32px', width: '40%' }}></div>
-        <div
-          className="skeleton"
-          style={{ height: '48px', width: '48px', borderRadius: '16px' }}
-        ></div>
-      </div>
-    </div>
-  </div>
-)
+import ProductGrid, { VIRTUALISE_ABOVE } from '../../components/ProductGrid'
+import { ProductGridSkeleton } from '../../components/Skeletons'
+import { useProducts } from '../../hooks/useCatalogue'
+import { useWishlistIds, useToggleWishlist } from '../../hooks/useWishlist'
+import { useAuth } from '../../context/AuthContext'
+import { useToast } from '../../components/Toast'
 
 export default function BuyerDashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
-
-  // Initialize from cache for "instant" feel
-  const [products, setProducts] = useState(() => {
-    try {
-      const cached = localStorage.getItem('cached_buyer_products')
-      return cached ? JSON.parse(cached) : []
-    } catch {
-      return []
-    }
-  })
+  const toast = useToast()
 
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(products.length === 0)
   const [category, setCategory] = useState('All')
-  const [wishlistIds, setWishlistIds] = useState([])
 
-  useEffect(() => {
-    fetchProducts()
-    fetchWishlist()
-    // Listen for global wishlist updates
-    const handleWishlistUpdate = () => fetchWishlist()
-    window.addEventListener('wishlistUpdated', handleWishlistUpdate)
-    return () => window.removeEventListener('wishlistUpdated', handleWishlistUpdate)
-  }, [search, category])
+  // The catalogue is cached by React Query, keyed on the filters. The old
+  // localStorage copy is gone: it went stale silently, could not be
+  // invalidated, and showed a signed-out visitor whatever the last signed-in
+  // user had browsed.
+  const {
+    data: products = [],
+    isPending,
+    isError,
+    error,
+    refetch,
+  } = useProducts({
+    search,
+    category,
+  })
 
-  const requestCounter = useRef(0)
+  const wishlistIds = useWishlistIds()
+  const toggleWishlist = useToggleWishlist()
 
-  const fetchProducts = async () => {
-    const requestId = ++requestCounter.current
-    if (products.length === 0) setLoading(true)
-    try {
-      const params = new URLSearchParams()
-      if (search) params.append('search', search)
-      if (category && category !== 'All') params.append('category', category)
-
-      const { data } = await http.get(`/products?${params.toString()}`)
-
-      if (requestId === requestCounter.current) {
-        const fetchedProducts = data.data || []
-        setProducts(fetchedProducts)
-        setLoading(false)
-
-        if (!search && category === 'All' && fetchedProducts.length > 0) {
-          localStorage.setItem('cached_buyer_products', JSON.stringify(fetchedProducts))
-        }
-      }
-    } catch (err) {
-      console.error('[Dashboard] Fetch Error:', err)
-      if (requestId === requestCounter.current) {
-        setLoading(false)
-      }
+  const handleToggleWishlist = (product) => {
+    if (!user) {
+      toast.info('Sign in to save items to your wishlist')
+      return
     }
-  }
-
-  const handleAddToCart = async (productId, size) => {
-    try {
-      await http.post('/cart/add', { productId, quantity: 1, size }, { withCredentials: true })
-      window.dispatchEvent(new Event('cartUpdated'))
-    } catch (_err) {
-      alert('Sign in to start shopping')
-    }
-  }
-
-  const fetchWishlist = async () => {
-    try {
-      if (!user) return
-      const { data } = await http.get('/user/wishlist', { withCredentials: true })
-      setWishlistIds(data.data.map((i) => i._id))
-    } catch (err) {
-      console.error(err)
-    }
-  }
-
-  const toggleWishlist = async (productId) => {
-    try {
-      if (!user) return alert('Please sign in to add to wishlist')
-      await http.post('/user/wishlist/toggle', { productId }, { withCredentials: true })
-
-      // Update local state immediately for snappy feel
-      setWishlistIds((prev) =>
-        prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId]
-      )
-
-      // Dispatch event so other components (like navbar) can update if needed
-      window.dispatchEvent(new Event('wishlistUpdated'))
-    } catch (err) {
-      console.error(err)
-      alert('Could not update wishlist. Please try again.')
-    }
+    toggleWishlist.mutate(product)
   }
 
   return (
@@ -603,21 +319,56 @@ export default function BuyerDashboard() {
                   : "Today's Essentials"
                 : category}
             </h2>
-            {(!loading || products.length > 0) && (
+            {!isPending && !isError && (
               <p
                 style={{ color: '#52525B', fontSize: '0.9rem', marginTop: '8px', fontWeight: 500 }}
               >
                 Showing {products.length} exquisite pieces found for you
+                {products.length > VIRTUALISE_ABOVE && ' · scroll the grid for more'}
               </p>
             )}
           </div>
         </div>
 
-        {loading && products.length === 0 ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px' }}>
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-              <ProductSkeleton key={i} />
-            ))}
+        {isPending ? (
+          <ProductGridSkeleton count={8} />
+        ) : isError ? (
+          <div
+            style={{
+              textAlign: 'center',
+              padding: '64px 40px',
+              background: 'white',
+              borderRadius: '32px',
+              border: '1px solid #FECACA',
+            }}
+          >
+            <h3
+              style={{
+                fontSize: '1.25rem',
+                color: '#111827',
+                marginBottom: '8px',
+                fontWeight: 800,
+              }}
+            >
+              The catalogue could not be loaded
+            </h3>
+            <p
+              style={{
+                color: '#6B7280',
+                fontSize: '0.85rem',
+                marginBottom: '24px',
+                fontWeight: 500,
+              }}
+            >
+              {error?.response?.data?.message || error?.message || 'Please try again.'}
+            </p>
+            <button
+              className="btn-primary"
+              style={{ padding: '14px 36px', borderRadius: '12px', fontSize: '0.85rem' }}
+              onClick={() => refetch()}
+            >
+              Try again
+            </button>
           </div>
         ) : products.length === 0 ? (
           <div
@@ -670,17 +421,11 @@ export default function BuyerDashboard() {
             </button>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px' }}>
-            {products.map((p) => (
-              <ProductCard
-                key={p._id}
-                p={p}
-                handleAddToCart={handleAddToCart}
-                wishlistIds={wishlistIds}
-                toggleWishlist={toggleWishlist}
-              />
-            ))}
-          </div>
+          <ProductGrid
+            products={products}
+            wishlistIds={wishlistIds}
+            onToggleWishlist={handleToggleWishlist}
+          />
         )}
 
         <RecommendationRow

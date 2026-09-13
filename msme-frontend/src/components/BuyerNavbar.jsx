@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import http from '../api/http'
 import {
   FaSearch,
   FaShoppingCart,
@@ -17,6 +16,10 @@ import {
   FaSignOutAlt,
 } from 'react-icons/fa'
 import { useAuth } from '../context/AuthContext'
+import { useCategories } from '../hooks/useCatalogue'
+import { useCart } from '../hooks/useCart'
+import { useWishlist } from '../hooks/useWishlist'
+import { useToast } from '../components/Toast'
 
 import { fetchStates, fetchDistricts } from '../services/locationService'
 
@@ -46,10 +49,18 @@ export default function BuyerNavbar({
   }, [user])
 
   const [localSearch, setLocalSearch] = useState(currentSearch || '')
-  const [cart, setCart] = useState({ items: [] })
+  const toast = useToast()
+
+  // Cart and wishlist come straight from the React Query cache, so the badges
+  // update the instant an optimistic mutation writes to it - no window events,
+  // no duplicate requests from every page that mounts the navbar.
+  const { data: cartData } = useCart()
+  const cart = cartData || { items: [] }
+  const { data: wishlistItems = [] } = useWishlist()
+  const wishlistCount = wishlistItems.length
+  const { data: fetchedCategories = [] } = useCategories()
   const [isSidebarOpen, setSidebarOpen] = useState(false)
   const [categories, setCategories] = useState([])
-  const [wishlistCount, setWishlistCount] = useState(0)
   const [district, setDistrict] = useState(() => {
     return localStorage.getItem('user_district') || user?.district || ''
   })
@@ -83,7 +94,10 @@ export default function BuyerNavbar({
   }, [selectedStateForLoc])
 
   const handleGetCurrentLocation = () => {
-    if (!navigator.geolocation) return alert('Geolocation is not supported by your browser')
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported by your browser')
+      return
+    }
     setGettingLocation(true)
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -117,68 +131,19 @@ export default function BuyerNavbar({
         }
       },
       (_err) => {
-        alert('Unable to retrieve your location. Check browser permissions.')
+        toast.error('Unable to retrieve your location. Check browser permissions.')
         setGettingLocation(false)
       }
     )
   }
 
   useEffect(() => {
-    fetchCategories()
-
-    // Fetch user-specific data only if user is available
-    if (user) {
-      fetchCart()
-      fetchWishlistCount()
-    }
-
-    const handleCartUpdate = () => fetchCart()
-    const handleWishlistUpdate = () => fetchWishlistCount()
-
-    window.addEventListener('cartUpdated', handleCartUpdate)
-    window.addEventListener('wishlistUpdated', handleWishlistUpdate)
-
-    return () => {
-      window.removeEventListener('cartUpdated', handleCartUpdate)
-      window.removeEventListener('wishlistUpdated', handleWishlistUpdate)
-    }
-  }, [user])
+    if (fetchedCategories.length) setCategories(fetchedCategories)
+  }, [fetchedCategories])
 
   useEffect(() => {
     if (currentSearch !== undefined) setLocalSearch(currentSearch)
   }, [currentSearch])
-
-  const fetchCategories = async () => {
-    try {
-      const cached = localStorage.getItem('msme_categories')
-      if (cached) setCategories(JSON.parse(cached))
-
-      const { data } = await http.get('/products/categories')
-      setCategories(data.data)
-      localStorage.setItem('msme_categories', JSON.stringify(data.data))
-    } catch (err) {
-      console.error(err)
-    }
-  }
-
-  const fetchCart = async () => {
-    try {
-      const { data } = await http.get('/cart', { withCredentials: true })
-      setCart(data.data)
-    } catch (err) {
-      console.error(err)
-    }
-  }
-
-  const fetchWishlistCount = async () => {
-    try {
-      if (!user) return
-      const { data } = await http.get('/user/wishlist', { withCredentials: true })
-      setWishlistCount(data.data.length || 0)
-    } catch (err) {
-      console.error(err)
-    }
-  }
 
   const handleSearchCommit = () => {
     if (onSearchChange) {

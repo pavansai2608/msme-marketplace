@@ -1,120 +1,94 @@
 import { useState, useEffect } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import axios from 'axios'
-import http from '../../api/http'
 import BuyerNavbar from '../../components/BuyerNavbar'
 import { FaPlus, FaEllipsisV, FaCrosshairs, FaMapMarkerAlt } from 'react-icons/fa'
 import { fetchStates } from '../../services/locationService'
+import { addressSchema } from '../../lib/schemas'
+import { ListSkeleton } from '../../components/Skeletons'
+import { useAddresses, useSaveAddress, useDeleteAddress } from '../../hooks/useAddresses'
+import { useToast } from '../../components/Toast'
+
+const EMPTY_ADDRESS = {
+  name: '',
+  phone: '',
+  pincode: '',
+  locality: '',
+  street: '',
+  city: '',
+  state: '',
+  landmark: '',
+  altPhone: '',
+  type: 'Home',
+}
 
 export default function Addresses() {
-  const [addresses, setAddresses] = useState([])
+  const toast = useToast()
   const [showForm, setShowForm] = useState(false)
   const [gettingLocation, setGettingLocation] = useState(false)
   const [apiStates, setApiStates] = useState([])
   const [editingId, setEditingId] = useState(null)
-  const [loading, setLoading] = useState(false)
 
-  // Form state
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [pincode, setPincode] = useState('')
-  const [locality, setLocality] = useState('')
-  const [street, setStreet] = useState('')
-  const [city, setCity] = useState('')
-  const [state, setState] = useState('')
-  const [landmark, setLandmark] = useState('')
-  const [altPhone, setAltPhone] = useState('')
-  const [type, setType] = useState('Home')
+  const { data: addresses = [], isPending } = useAddresses()
+  const saveMutation = useSaveAddress()
+  const deleteMutation = useDeleteAddress()
+  const loading = saveMutation.isPending
+
+  // Ten fields of useState replaced by one form. addressSchema carries the
+  // same rules the API validates against.
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    watch,
+    formState: { errors },
+  } = useForm({
+    resolver: zodResolver(addressSchema),
+    mode: 'onBlur',
+    defaultValues: EMPTY_ADDRESS,
+  })
+
+  const type = watch('type')
 
   useEffect(() => {
-    fetchAddresses()
     fetchStates().then(setApiStates)
   }, [])
 
-  const fetchAddresses = async () => {
-    try {
-      const { data } = await http.get('/auth/me', { withCredentials: true })
-      setAddresses(data.user?.savedAddresses || [])
-    } catch (err) {
-      console.error(err)
-    }
-  }
-
   const resetForm = () => {
-    setName('')
-    setPhone('')
-    setPincode('')
-    setLocality('')
-    setStreet('')
-    setCity('')
-    setState('')
-    setLandmark('')
-    setAltPhone('')
-    setType('Home')
+    reset(EMPTY_ADDRESS)
     setEditingId(null)
   }
 
-  const handleSave = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    try {
-      const addrData = {
-        name,
-        phone,
-        pincode,
-        locality,
-        street,
-        city,
-        state,
-        landmark,
-        altPhone,
-        type,
+  const onSubmit = (values) => {
+    saveMutation.mutate(
+      { id: editingId, values },
+      {
+        onSuccess: () => {
+          setShowForm(false)
+          resetForm()
+        },
       }
-
-      if (editingId) {
-        await http.put(`/user/addresses/${editingId}`, addrData, { withCredentials: true })
-      } else {
-        await http.post('/user/addresses', addrData, { withCredentials: true })
-      }
-
-      setShowForm(false)
-      resetForm()
-      fetchAddresses()
-    } catch (err) {
-      console.error(err)
-      alert('Failed to save address')
-    } finally {
-      setLoading(false)
-    }
+    )
   }
 
   const handleEdit = (addr) => {
-    setName(addr.name || '')
-    setPhone(addr.phone || '')
-    setPincode(addr.pincode || '')
-    setLocality(addr.locality || '')
-    setStreet(addr.street || '')
-    setCity(addr.city || '')
-    setState(addr.state || '')
-    setLandmark(addr.landmark || '')
-    setAltPhone(addr.altPhone || '')
-    setType(addr.type || 'Home')
+    reset({ ...EMPTY_ADDRESS, ...addr, type: addr.type === 'Work' ? 'Work' : 'Home' })
     setEditingId(addr._id)
     setShowForm(true)
   }
 
-  const handleDelete = async (id) => {
+  const handleDelete = (id) => {
     if (!window.confirm('Are you sure you want to delete this address?')) return
-    try {
-      await http.delete(`/user/addresses/${id}`, { withCredentials: true })
-      fetchAddresses()
-    } catch (err) {
-      console.error(err)
-      alert('Failed to delete address')
-    }
+    deleteMutation.mutate(id)
   }
 
   const handleGetCurrentLocation = () => {
-    if (!navigator.geolocation) return alert('Geolocation is not supported by your browser')
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported by your browser')
+      return
+    }
     setGettingLocation(true)
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -125,14 +99,20 @@ export default function Addresses() {
           )
           if (res.data && res.data.address) {
             const addr = res.data.address
-            setPincode(addr.postcode || '')
-            setCity(addr.city || addr.town || addr.village || addr.county || '')
-            setLocality(addr.suburb || addr.neighbourhood || addr.state_district || '')
-            setStreet((addr.road || '') + (addr.house_number ? ', ' + addr.house_number : ''))
-
-            if (addr.state) {
-              setState(addr.state)
-            }
+            const opts = { shouldValidate: true, shouldDirty: true }
+            setValue('pincode', (addr.postcode || '').replace(/\D/g, '').slice(0, 6), opts)
+            setValue('city', addr.city || addr.town || addr.village || addr.county || '', opts)
+            setValue(
+              'locality',
+              addr.suburb || addr.neighbourhood || addr.state_district || '',
+              opts
+            )
+            setValue(
+              'street',
+              (addr.road || '') + (addr.house_number ? ', ' + addr.house_number : ''),
+              opts
+            )
+            if (addr.state) setValue('state', addr.state, opts)
           }
         } catch (err) {
           console.error('Geo error', err)
@@ -141,7 +121,7 @@ export default function Addresses() {
         }
       },
       (_err) => {
-        alert('Unable to retrieve your location. Please grant permission.')
+        toast.error('Unable to retrieve your location. Please grant permission.')
         setGettingLocation(false)
       }
     )
@@ -245,7 +225,7 @@ export default function Addresses() {
               <FaCrosshairs /> {gettingLocation ? 'LOCATING...' : 'AUTODETECT MY LOCATION'}
             </button>
 
-            <form onSubmit={handleSave}>
+            <form onSubmit={handleSubmit(onSubmit)} noValidate>
               <div
                 style={{
                   display: 'grid',
@@ -255,34 +235,10 @@ export default function Addresses() {
                 }}
               >
                 {[
-                  {
-                    label: 'Recipient Name',
-                    val: name,
-                    set: setName,
-                    ph: 'Full legal name',
-                    key: 'name',
-                  },
-                  {
-                    label: 'Primary Contact',
-                    val: phone,
-                    set: setPhone,
-                    ph: '10-digit mobile',
-                    key: 'phone',
-                  },
-                  {
-                    label: 'Postal Code',
-                    val: pincode,
-                    set: setPincode,
-                    ph: '6-digit PIN',
-                    key: 'pincode',
-                  },
-                  {
-                    label: 'Neighborhood',
-                    val: locality,
-                    set: setLocality,
-                    ph: 'Locality / Area',
-                    key: 'locality',
-                  },
+                  { label: 'Recipient Name', ph: 'Full legal name', key: 'name' },
+                  { label: 'Primary Contact', ph: '10-digit mobile', key: 'phone', digits: 10 },
+                  { label: 'Postal Code', ph: '6-digit PIN', key: 'pincode', digits: 6 },
+                  { label: 'Neighborhood', ph: 'Locality / Area', key: 'locality' },
                 ].map((f) => (
                   <div key={f.label}>
                     <label
@@ -302,15 +258,25 @@ export default function Addresses() {
                       type="text"
                       className="input-field"
                       placeholder={f.ph}
-                      required
-                      value={f.val}
-                      onChange={(e) => {
-                        let val = e.target.value
-                        if (f.key === 'phone') val = val.replace(/\D/g, '').slice(0, 10)
-                        if (f.key === 'pincode') val = val.replace(/\D/g, '').slice(0, 6)
-                        f.set(val)
-                      }}
+                      inputMode={f.digits ? 'numeric' : undefined}
+                      aria-invalid={Boolean(errors[f.key])}
+                      {...register(f.key, {
+                        // Numeric fields can only ever hold digits, capped at
+                        // the length the schema (and the API) require.
+                        onChange: f.digits
+                          ? (e) => {
+                              e.target.value = e.target.value.replace(/\D/g, '').slice(0, f.digits)
+                            }
+                          : undefined,
+                      })}
                     />
+                    {errors[f.key] && (
+                      <div
+                        style={{ color: '#DC2626', fontSize: 11, marginTop: 6, fontWeight: 600 }}
+                      >
+                        {errors[f.key].message}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -332,11 +298,15 @@ export default function Addresses() {
                 <textarea
                   className="input-field"
                   placeholder="Street, Suite, Apartment details"
-                  required
-                  value={street}
-                  onChange={(e) => setStreet(e.target.value)}
+                  aria-invalid={Boolean(errors.street)}
+                  {...register('street')}
                   style={{ minHeight: '140px', resize: 'none' }}
                 />
+                {errors.street && (
+                  <div style={{ color: '#DC2626', fontSize: 11, marginTop: 6, fontWeight: 600 }}>
+                    {errors.street.message}
+                  </div>
+                )}
               </div>
 
               <div
@@ -352,10 +322,14 @@ export default function Addresses() {
                     type="text"
                     className="input-field"
                     placeholder="City"
-                    required
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
+                    aria-invalid={Boolean(errors.city)}
+                    {...register('city')}
                   />
+                  {errors.city && (
+                    <div style={{ color: '#DC2626', fontSize: 11, marginTop: 6, fontWeight: 600 }}>
+                      {errors.city.message}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label
@@ -373,9 +347,8 @@ export default function Addresses() {
                   </label>
                   <select
                     className="input-field"
-                    value={state}
-                    onChange={(e) => setState(e.target.value)}
-                    required
+                    aria-invalid={Boolean(errors.state)}
+                    {...register('state')}
                   >
                     <option value="">Select State</option>
                     {apiStates.map((s) => (
@@ -384,6 +357,11 @@ export default function Addresses() {
                       </option>
                     ))}
                   </select>
+                  {errors.state && (
+                    <div style={{ color: '#DC2626', fontSize: 11, marginTop: 6, fontWeight: 600 }}>
+                      {errors.state.message}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -406,7 +384,7 @@ export default function Addresses() {
                     <button
                       key={t}
                       type="button"
-                      onClick={() => setType(t)}
+                      onClick={() => setValue('type', t, { shouldDirty: true })}
                       style={{
                         padding: '20px',
                         borderRadius: '20px',
@@ -473,7 +451,9 @@ export default function Addresses() {
             gap: '40px',
           }}
         >
-          {(addresses || []).length === 0 && !showForm && (
+          {isPending && !showForm && <ListSkeleton rows={2} height={150} />}
+
+          {!isPending && (addresses || []).length === 0 && !showForm && (
             <div
               style={{
                 gridColumn: '1 / -1',

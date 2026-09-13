@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import http from '../../api/http'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
   FaStar,
   FaArrowLeft,
@@ -14,151 +13,69 @@ import {
 } from 'react-icons/fa'
 import BuyerNavbar from '../../components/BuyerNavbar'
 import RecommendationRow from '../../components/RecommendationRow'
+import { useProduct } from '../../hooks/useCatalogue'
+import { useWishlistIds, useToggleWishlist } from '../../hooks/useWishlist'
+import { useAddToCart } from '../../hooks/useCart'
+import { useToast } from '../../components/Toast'
 
-// Inline toast — no browser alert() ever
-function Toast({ message, type }) {
-  if (!message) return null
-  const bg = type === 'error' ? '#fee2e2' : type === 'success' ? '#dcfce7' : '#eff6ff'
-  const color = type === 'error' ? '#dc2626' : type === 'success' ? '#166534' : '#1d4ed8'
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        top: '20px',
-        right: '20px',
-        background: bg,
-        color,
-        padding: '14px 20px',
-        borderRadius: '12px',
-        fontWeight: 700,
-        zIndex: 9999,
-        boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
-        maxWidth: '340px',
-        animation: 'slideIn 0.3s ease',
-      }}
-    >
-      {message}
-    </div>
-  )
-}
+// The page-local Toast component that used to live here has been promoted into
+// the shared ToastProvider, so every page raises notifications the same way.
 
 export default function ProductDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const location = useLocation()
+  const toast = useToast()
 
-  const [product, setProduct] = useState(location.state?.product || null)
   const [selectedImg, setSelectedImg] = useState(0)
   const [selectedSize, setSelectedSize] = useState(null)
   const [quantity, setQuantity] = useState(1)
-  const [loading, setLoading] = useState(!location.state?.product)
 
+  const { data: product, isPending: loading } = useProduct(id)
+
+  const wishlistIds = useWishlistIds()
+  const isWished = wishlistIds.includes(id)
+  const toggleWishlistMutation = useToggleWishlist()
+  const addToCartMutation = useAddToCart()
+  const addingToCart = addToCartMutation.isPending
+
+  // Default to the first size that is actually in stock, once the product
+  // arrives (or changes, when navigating between products).
   useEffect(() => {
-    if (product && !selectedSize) {
-      const firstInStock = product.sizes?.find((s) => s.stock > 0)
-      if (firstInStock) setSelectedSize(firstInStock.size)
-    }
+    if (!product) return
+    const firstInStock = product.sizes?.find((s) => s.stock > 0)
+    setSelectedSize(firstInStock ? firstInStock.size : null)
+    setSelectedImg(0)
+    setQuantity(1)
   }, [product])
-  const [addingToCart, setAddingToCart] = useState(false)
-  const [_added, setAdded] = useState(false)
-  const [toast, setToast] = useState({ message: '', type: '' })
-  const [isWished, setIsWished] = useState(false)
 
-  const showToast = (message, type = 'info') => {
-    setToast({ message, type })
-    setTimeout(() => setToast({ message: '', type: '' }), 3000)
-  }
+  const toggleWishlist = () => toggleWishlistMutation.mutate(product || { _id: id })
 
-  useEffect(() => {
-    setAdded(false)
-  }, [selectedSize, quantity])
-  useEffect(() => {
-    fetchProduct()
-    if (id) checkWishlistStatus()
-  }, [id])
-
-  const checkWishlistStatus = async () => {
-    try {
-      const wishRes = await http.get('/user/wishlist', { withCredentials: true })
-      const wishData = wishRes.data?.data || []
-      const exists = wishData.some((w) => {
-        if (!w) return false
-        const wId = w._id ? w._id.toString() : w.toString()
-        return wId === id.toString()
-      })
-      if (exists) setIsWished(true)
-    } catch (_err) {
-      /* Not logged in or error */
+  // Both buttons share the same guard: no size chosen, or the chosen size is
+  // sold out.
+  const cartGuard = () => {
+    if (!selectedSize) {
+      toast.error('Please select a size first')
+      return false
     }
-  }
-
-  const fetchProduct = async () => {
-    try {
-      setLoading(true)
-      console.log(`[ProductDetail] Fetching product with ID: ${id}`)
-      const { data } = await http.get(`/products/${id}`)
-      console.log(`[ProductDetail] Received data:`, data)
-      if (data && data.success && data.data) {
-        setProduct(data.data)
-        const firstInStock = data.data.sizes.find((s) => s.stock > 0)
-        if (firstInStock) setSelectedSize(firstInStock.size)
-      } else {
-        console.error(`[ProductDetail] Product not found in response:`, data)
-      }
-    } catch (err) {
-      console.error(`[ProductDetail] Fetch error:`, err.response || err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const toggleWishlist = async () => {
-    try {
-      await http.post('/user/wishlist/toggle', { productId: id }, { withCredentials: true })
-      setIsWished(!isWished)
-      window.dispatchEvent(new Event('wishlistUpdated'))
-      showToast(isWished ? 'Removed from wishlist' : 'Added to wishlist ❤️', 'success')
-    } catch (_err) {
-      showToast('Please log in to add to wishlist', 'error')
-    }
-  }
-
-  const handleAddToCart = async () => {
-    if (!selectedSize) return showToast('Please select a size first', 'error')
     const sizeStock = product.sizes.find((s) => s.size === selectedSize)?.stock || 0
-    if (sizeStock === 0) return showToast(`Size ${selectedSize} is out of stock`, 'error')
-    setAddingToCart(true)
-    try {
-      await http.post(
-        '/cart/add',
-        { productId: id, quantity, size: selectedSize },
-        { withCredentials: true }
-      )
-      setAdded(true)
-      window.dispatchEvent(new Event('cartUpdated'))
-    } catch (err) {
-      const msg = err.response?.data?.message || 'Could not add to cart. Please log in.'
-      showToast(msg, 'error')
-    } finally {
-      setAddingToCart(false)
+    if (sizeStock === 0) {
+      toast.error(`Size ${selectedSize} is out of stock`)
+      return false
     }
+    return true
   }
 
-  const handleBuyNow = async () => {
-    if (!selectedSize) return showToast('Please select a size first', 'error')
-    const sizeStock = product.sizes.find((s) => s.size === selectedSize)?.stock || 0
-    if (sizeStock === 0) return showToast(`Size ${selectedSize} is out of stock`, 'error')
-    try {
-      await http.post(
-        '/cart/add',
-        { productId: id, quantity, size: selectedSize },
-        { withCredentials: true }
-      )
-      navigate('/checkout')
-    } catch (err) {
-      const msg = err.response?.data?.message || 'Please log in to continue.'
-      showToast(msg, 'error')
-    }
+  const handleAddToCart = () => {
+    if (!cartGuard()) return
+    addToCartMutation.mutate({ productId: id, quantity, size: selectedSize })
+  }
+
+  const handleBuyNow = () => {
+    if (!cartGuard()) return
+    addToCartMutation.mutate(
+      { productId: id, quantity, size: selectedSize },
+      { onSuccess: () => navigate('/checkout') }
+    )
   }
 
   // Cap quantity at selected size stock
@@ -168,24 +85,27 @@ export default function ProductDetail() {
 
   if (loading)
     return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-        }}
-      >
+      <div style={{ background: 'var(--background)', minHeight: '100vh' }}>
+        <BuyerNavbar />
         <div
           style={{
-            width: '48px',
-            height: '48px',
-            border: '4px solid #ddd',
-            borderTopColor: 'var(--primary)',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
+            maxWidth: '1200px',
+            margin: '0 auto',
+            padding: '48px 40px',
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '48px',
           }}
-        ></div>
+        >
+          <div className="skeleton" style={{ height: 520, borderRadius: 24 }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div className="skeleton" style={{ height: 14, width: '25%' }} />
+            <div className="skeleton" style={{ height: 40, width: '80%' }} />
+            <div className="skeleton" style={{ height: 30, width: '40%' }} />
+            <div className="skeleton" style={{ height: 90, width: '100%' }} />
+            <div className="skeleton" style={{ height: 54, width: '100%', borderRadius: 14 }} />
+          </div>
+        </div>
       </div>
     )
 
@@ -197,7 +117,6 @@ export default function ProductDetail() {
   return (
     <div style={{ background: 'var(--background)', minHeight: '100vh', paddingBottom: '80px' }}>
       <BuyerNavbar />
-      <Toast message={toast.message} type={toast.type} />
 
       {/* Breadcrumb Nav */}
       <div

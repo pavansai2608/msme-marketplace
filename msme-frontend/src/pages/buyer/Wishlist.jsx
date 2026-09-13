@@ -1,108 +1,52 @@
-import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import http from '../../api/http'
 import BuyerNavbar from '../../components/BuyerNavbar'
 import { FaTrash, FaRegHeart } from 'react-icons/fa'
+import { ProductGridSkeleton } from '../../components/Skeletons'
+import { useWishlist, useToggleWishlist } from '../../hooks/useWishlist'
+import { useAddToCart } from '../../hooks/useCart'
 
 export default function Wishlist() {
   const navigate = useNavigate()
-  const [wishlist, setWishlist] = useState([])
-  const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchWishlist()
-  }, [])
+  const { data: rawWishlist = [], isPending: loading } = useWishlist()
+  // A product deleted by its seller leaves a null behind in the populated array.
+  const wishlist = rawWishlist.filter(Boolean)
 
-  const fetchWishlist = async () => {
-    try {
-      // the endpoint might not exist yet, we'll gracefully fallback
-      const { data } = await http.get('/user/wishlist', { withCredentials: true })
-      // Filter out nulls in case products were deleted
-      setWishlist((data.data || []).filter((item) => item !== null))
-    } catch (err) {
-      console.error(err)
-      setWishlist([])
-    } finally {
-      setLoading(false)
-    }
-  }
+  const toggleWishlist = useToggleWishlist()
+  const addToCart = useAddToCart()
 
-  const handleRemove = async (id) => {
-    try {
-      await http.delete(`/user/wishlist/${id}`, { withCredentials: true })
-      fetchWishlist()
-      window.dispatchEvent(new Event('wishlistUpdated'))
-    } catch (err) {
-      console.error(err)
-    }
-  }
+  // The toggle is optimistic, so the card disappears on click and comes back
+  // if the server refuses.
+  const handleRemove = (id) => toggleWishlist.mutate({ _id: id })
 
-  const handleMoveToBag = async (product) => {
+  const handleMoveToBag = (product) => {
     const firstSize = product.sizes?.find((s) => s.stock > 0)?.size
     if (!firstSize) {
-      // If no size found (shouldn't happen with totalStock > 0), just go to product page
       navigate(`/product/${product._id}`)
       return
     }
 
-    try {
-      await http.post(
-        '/cart/add',
-        {
-          productId: product._id,
-          quantity: 1,
-          size: firstSize,
+    addToCart.mutate(
+      { productId: product._id, quantity: 1, size: firstSize },
+      {
+        onSuccess: () => {
+          toggleWishlist.mutate({ _id: product._id })
+          navigate('/cart')
         },
-        { withCredentials: true }
-      )
-
-      // Remove from wishlist after moving to bag
-      await http.delete(`/user/wishlist/${product._id}`, { withCredentials: true })
-
-      window.dispatchEvent(new Event('cartUpdated'))
-      window.dispatchEvent(new Event('wishlistUpdated'))
-      navigate('/cart')
-    } catch (err) {
-      console.error(err)
-      // On error (e.g. not logged in), navigate to product page as fallback
-      navigate(`/product/${product._id}`)
-    }
+        // The shared handler has already raised a toast; fall back to the
+        // product page so the click is not simply swallowed.
+        onError: () => navigate(`/product/${product._id}`),
+      }
+    )
   }
 
   if (loading)
     return (
       <div style={{ background: 'var(--background)', minHeight: '100vh' }}>
         <BuyerNavbar />
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: '60vh',
-          }}
-        >
-          <div
-            style={{
-              width: '48px',
-              height: '48px',
-              border: '4px solid var(--border)',
-              borderTopColor: 'var(--primary)',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-              marginBottom: '20px',
-            }}
-          ></div>
-          <p
-            style={{
-              color: 'var(--text-grey)',
-              fontWeight: 600,
-              fontSize: '0.9rem',
-              letterSpacing: '1px',
-            }}
-          >
-            SYNCHRONIZING YOUR WISHLIST...
-          </p>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '60px' }}>
+          <div className="skeleton" style={{ height: 34, width: '26%', marginBottom: 32 }} />
+          <ProductGridSkeleton count={4} />
         </div>
       </div>
     )

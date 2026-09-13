@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import http from '../../api/http'
 import BuyerNavbar from '../../components/BuyerNavbar'
+import { useToast } from '../../components/Toast'
 import { useAuth } from '../../context/AuthContext'
 import { FaUserEdit, FaEnvelope, FaIdBadge, FaCalendarAlt } from 'react-icons/fa'
 
 export default function Profile() {
+  const toast = useToast()
   const { user, setUser } = useAuth()
   const [profile, setProfile] = useState(user || {})
   const [isEditing, setIsEditing] = useState(false)
@@ -35,7 +37,10 @@ export default function Profile() {
   const handleFileUpload = (e) => {
     const file = e.target.files[0]
     if (file) {
-      if (file.size > 2 * 1024 * 1024) return alert('Image size should be less than 2MB')
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error('Image size should be less than 2MB')
+        return
+      }
       const reader = new FileReader()
       reader.onloadend = () => {
         setNewAvatar(reader.result)
@@ -45,7 +50,10 @@ export default function Profile() {
   }
 
   const handleUpdateAvatar = async () => {
-    if (!newAvatar) return alert('Please select an image first')
+    if (!newAvatar) {
+      toast.info('Please select an image first')
+      return
+    }
     setUpdating(true)
     try {
       const { data } = await http.put(
@@ -56,11 +64,10 @@ export default function Profile() {
       setProfile(data.user)
       setUser(data.user)
       setIsEditing(false)
-      alert('Profile image updated successfully!')
+      toast.success('Profile image updated')
     } catch (err) {
       console.error('Update Error:', err)
-      const msg = err.response?.data?.message || err.message || 'Failed to update image'
-      alert(msg)
+      toast.error(err.response?.data?.message || err.message || 'Failed to update image')
     } finally {
       setUpdating(false)
     }
