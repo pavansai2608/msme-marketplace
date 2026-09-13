@@ -1,5 +1,18 @@
 const User = require('../models/User')
 
+// Mongoose schema violations (a 6-digit pincode, a 10-digit phone) are the
+// caller's fault, not the server's. Without this they came back as a 500 with
+// the raw validator text and the form had nothing useful to show.
+const sendError = (res, err) => {
+  if (err.name === 'ValidationError') {
+    const message = Object.values(err.errors)
+      .map((v) => v.message)
+      .join(', ')
+    return res.status(400).json({ success: false, message })
+  }
+  return res.status(500).json({ success: false, message: err.message })
+}
+
 exports.getWishlist = async (req, res) => {
   try {
     const start = Date.now()
@@ -82,7 +95,7 @@ exports.addAddress = async (req, res) => {
     await user.save()
     res.json({ success: true, data: user.savedAddresses })
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message })
+    sendError(res, err)
   }
 }
 
@@ -110,7 +123,7 @@ exports.updateAddress = async (req, res) => {
 
     res.json({ success: true, data: user.savedAddresses })
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message })
+    sendError(res, err)
   }
 }
 

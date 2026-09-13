@@ -37,14 +37,27 @@ const UserSchema = new mongoose.Schema(
     savedAddresses: [
       {
         name: String,
-        phone: String,
-        pincode: String,
+        // Shape enforced here so the API is the authority, not the form. The
+        // client mirrors these exact rules in src/lib/schemas.js.
+        phone: {
+          type: String,
+          match: [/^\d{10}$/, 'Phone must be exactly 10 digits'],
+        },
+        pincode: {
+          type: String,
+          match: [/^\d{6}$/, 'Pincode must be exactly 6 digits'],
+        },
         locality: String,
         street: String,
         city: String,
         state: String,
         landmark: String,
-        altPhone: String,
+        // Optional, but held to the same shape when supplied. The regex allows
+        // '' because an untouched optional input posts an empty string.
+        altPhone: {
+          type: String,
+          match: [/^(\d{10})?$/, 'Phone must be exactly 10 digits'],
+        },
         type: { type: String, default: 'Home' },
         isDefault: { type: Boolean, default: false },
       },
