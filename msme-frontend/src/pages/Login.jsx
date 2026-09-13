@@ -519,7 +519,11 @@ export default function Login() {
                 <span>✓</span> Signed in successfully! Redirecting to dashboard...
               </div>
             )}
-            {apiError && <div style={S.errorBanner}>{apiError}</div>}
+            {apiError && (
+              <div data-testid="login-error" style={S.errorBanner}>
+                {apiError}
+              </div>
+            )}
 
             <GoogleAuthBtn loading={gLoading} setLoading={setGLoading} />
 

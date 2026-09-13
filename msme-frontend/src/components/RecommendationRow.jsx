@@ -60,7 +60,7 @@ export default function RecommendationRow({ title, endpoint, k = 10 }) {
   if (!loading && products.length === 0) return null
 
   return (
-    <section style={{ padding: '48px 40px 0' }}>
+    <section data-testid="recommendation-row" style={{ padding: '48px 40px 0' }}>
       <h2
         style={{
           fontSize: '1.5rem',
@@ -88,6 +88,7 @@ export default function RecommendationRow({ title, endpoint, k = 10 }) {
           : products.map((p) => (
               <div
                 key={p._id}
+                data-testid="recommendation-card"
                 onClick={() => navigate(`/product/${p._id}`)}
                 style={{
                   minWidth: '220px',
