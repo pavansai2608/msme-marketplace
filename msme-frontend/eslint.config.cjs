@@ -27,6 +27,7 @@ const browserGlobals = {
   Event: 'readonly',
   CustomEvent: 'readonly',
   IntersectionObserver: 'readonly',
+  ResizeObserver: 'readonly',
   HTMLElement: 'readonly',
   AbortController: 'readonly',
   URLSearchParams: 'readonly',
