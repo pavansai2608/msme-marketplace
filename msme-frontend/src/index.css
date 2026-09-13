@@ -419,3 +419,30 @@ a:hover { opacity: 0.85; }
 }
 
 
+
+/* ── Skeletons ──────────────────────────────────────────────────────────────
+   The .skeleton class was already being used by the product grid but had no
+   rule behind it, so every placeholder rendered as an invisible div. */
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #eef1f5 25%, #f7f9fb 37%, #eef1f5 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+/* Respect a reduced-motion preference: keep the placeholder, drop the sweep. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: #eef1f5;
+  }
+}
