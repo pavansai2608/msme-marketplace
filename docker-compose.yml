@@ -1,27 +1,92 @@
-version: "3.9"
+# Local stack: all three services plus redis. MongoDB is NOT here - the app
+# talks to Atlas, and MONGO_URL comes from msme-backend/.env.
+#
+#   docker compose up -d --build
+#   open http://localhost:3001
+#
+# The top-level `version:` key is obsolete in Compose v2 and is omitted.
 
 services:
-
   backend:
     build:
       context: ./msme-backend
+    image: msme-backend:dev
     container_name: msme-backend
     ports:
       - "5000:5000"
     env_file:
       - ./msme-backend/.env
     environment:
-      - PORT=5000
-    restart: always
+      # These win over env_file, so the container is wired to its siblings by
+      # service name regardless of what .env says for local runs.
+      PORT: "5000"
+      NODE_ENV: production
+      CLIENT_URL: http://localhost:3001
+      RECOMMENDER_URL: http://recommender:8000
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+      recommender:
+        # Only "started": the recommender indexes Atlas on boot and the backend
+        # is designed to run without it (2s timeout, then a graceful fallback).
+        # Waiting for healthy would gate the whole stack on an optional service.
+        condition: service_started
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./msme-frontend
-      args:
-        VITE_API_URL: http://localhost:5000/api
+    image: msme-frontend:dev
     container_name: msme-frontend
     ports:
-      - "3001:80"
+      # nginx listens on 8080 inside the container because the image runs as an
+      # unprivileged user and cannot bind a port below 1024.
+      - "3001:8080"
+    environment:
+      # Substituted into the nginx config at startup; this is how /api reaches
+      # the backend when there is no ingress in front.
+      BACKEND_URL: http://backend:5000
     depends_on:
-      - backend
-    restart: always
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  recommender:
+    build:
+      context: ./msme-recommender
+    image: msme-recommender:dev
+    container_name: msme-recommender
+    ports:
+      - "8000:8000"
+    env_file:
+      # Reuses the backend's Atlas connection string - same database, read only.
+      # MONGO_URL is deliberately NOT repeated under `environment`: that block
+      # wins over env_file, so an unset shell variable there would resolve to
+      # "" and silently override the real value.
+      - ./msme-backend/.env
+    environment:
+      CONTENT_WEIGHT: "0.6"
+      COLLAB_WEIGHT: "0.4"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: msme-redis
+    # appendonly keeps the data across restarts; without it a container
+    # recreate silently empties the cache.
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  redis-data:
