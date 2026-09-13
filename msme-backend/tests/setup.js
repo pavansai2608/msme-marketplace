@@ -6,9 +6,11 @@ process.env.JWT_EXPIRE = '7d'
 process.env.CLIENT_URL = 'http://localhost:3001'
 
 // Google must look unconfigured so the 503 path is what gets exercised.
-delete process.env.GOOGLE_CLIENT_ID
-delete process.env.GOOGLE_CLIENT_SECRET
-delete process.env.GOOGLE_CALLBACK_URL
+// These are set to '' rather than deleted: dotenv only skips keys that are
+// already present, so deleting them would let the real .env repopulate them.
+process.env.GOOGLE_CLIENT_ID = ''
+process.env.GOOGLE_CLIENT_SECRET = ''
+process.env.GOOGLE_CALLBACK_URL = ''
 
 const mongoose = require('mongoose')
 const { MongoMemoryServer } = require('mongodb-memory-server')

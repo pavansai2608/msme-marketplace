@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import http from '../api/http'
 import {
   FaSearch,
   FaShoppingCart,
@@ -152,7 +153,7 @@ export default function BuyerNavbar({
       const cached = localStorage.getItem('msme_categories')
       if (cached) setCategories(JSON.parse(cached))
 
-      const { data } = await axios.get('/api/products/categories')
+      const { data } = await http.get('/products/categories')
       setCategories(data.data)
       localStorage.setItem('msme_categories', JSON.stringify(data.data))
     } catch (err) {
@@ -162,7 +163,7 @@ export default function BuyerNavbar({
 
   const fetchCart = async () => {
     try {
-      const { data } = await axios.get('/api/cart', { withCredentials: true })
+      const { data } = await http.get('/cart', { withCredentials: true })
       setCart(data.data)
     } catch (err) {
       console.error(err)
@@ -172,7 +173,7 @@ export default function BuyerNavbar({
   const fetchWishlistCount = async () => {
     try {
       if (!user) return
-      const { data } = await axios.get('/api/user/wishlist', { withCredentials: true })
+      const { data } = await http.get('/user/wishlist', { withCredentials: true })
       setWishlistCount(data.data.length || 0)
     } catch (err) {
       console.error(err)

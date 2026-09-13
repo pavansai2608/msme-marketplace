@@ -3,11 +3,28 @@ const app = require('../app')
 
 const PASSWORD = 'abcd1234'
 
-const cookieFrom = (res) => {
+const namedCookie = (res, name) => {
   const setCookie = res.headers['set-cookie'] || []
-  const token = setCookie.find((c) => c.startsWith('token='))
-  return token ? token.split(';')[0] : ''
+  const found = setCookie.find((c) => c.startsWith(`${name}=`))
+  return found ? found.split(';')[0] : ''
 }
+
+// Everything the browser would send back: access + refresh + csrf.
+const cookieFrom = (res) =>
+  [namedCookie(res, 'token'), namedCookie(res, 'refreshToken'), namedCookie(res, 'csrfToken')]
+    .filter(Boolean)
+    .join('; ')
+
+// Pulls the csrf value back out of a cookie STRING (what most tests pass
+// around), so a request can echo it in the header the way the browser does.
+const csrfOf = (cookieString) => (String(cookieString).match(/csrfToken=([^;]+)/) || [])[1] || ''
+
+const csrfFrom = (res) => (namedCookie(res, 'csrfToken') || '').split('=')[1] || ''
+
+// A request carrying both the cookies and the matching CSRF header, which is
+// what the real client does.
+const authed = (res, method, url) =>
+  request(app)[method](url).set('Cookie', cookieFrom(res)).set('x-csrf-token', csrfFrom(res))
 
 const rawTokenCookie = (res) =>
   (res.headers['set-cookie'] || []).find((c) => c.startsWith('token=')) || ''
@@ -38,4 +55,18 @@ const PRODUCT = {
   sizes: [{ size: 'M', stock: 10 }],
 }
 
-module.exports = { app, request, PASSWORD, cookieFrom, rawTokenCookie, registerUser, loginUser, SELLER_DETAILS, PRODUCT }
+module.exports = {
+  app,
+  request,
+  PASSWORD,
+  cookieFrom,
+  namedCookie,
+  csrfFrom,
+  csrfOf,
+  authed,
+  rawTokenCookie,
+  registerUser,
+  loginUser,
+  SELLER_DETAILS,
+  PRODUCT,
+}

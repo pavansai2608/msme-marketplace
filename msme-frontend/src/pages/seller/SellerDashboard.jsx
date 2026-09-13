@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import * as productApi from '../../api/productApi'
-import axios from 'axios'
+import http from '../../api/http'
 import SellerOnboarding from './SellerOnboarding'
 import { fetchStates, fetchDistricts } from '../../services/locationService'
 import {
@@ -1040,8 +1040,8 @@ function SchemesTab() {
     // Only show full-page loader if we have no cached data at all
     if (schemes.length === 0) setLoadingSchemes(true)
     try {
-      const url = `/api/schemes?district=${encodeURIComponent(districtFilter)}&category=${encodeURIComponent(categoryFilter)}`
-      const { data } = await axios.get(url, { withCredentials: true })
+      const url = `/schemes?district=${encodeURIComponent(districtFilter)}&category=${encodeURIComponent(categoryFilter)}`
+      const { data } = await http.get(url)
       setSchemes(data.data || [])
       localStorage.setItem('cached_schemes', JSON.stringify(data.data))
     } catch (err) {
@@ -1336,7 +1336,7 @@ function LogisticsTab({ orders, onRefresh }) {
     setTrackError('')
     setTrackResult(null)
     try {
-      const { data } = await axios.get(`/api/orders/track/${trackingId.trim()}`, {
+      const { data } = await http.get(`/orders/track/${trackingId.trim()}`, {
         withCredentials: true,
       })
       const order = data.data
@@ -1374,8 +1374,8 @@ function LogisticsTab({ orders, onRefresh }) {
     if (!assignAWB.trim()) return alert('Enter an AWB / tracking number')
     setAssigning(true)
     try {
-      await axios.put(
-        `/api/orders/${assignModal._id}/assign-carrier`,
+      await http.put(
+        `/orders/${assignModal._id}/assign-carrier`,
         {
           carrier: assignCarrier,
           trackingId: assignAWB.trim(),
@@ -1538,8 +1538,8 @@ function LogisticsTab({ orders, onRefresh }) {
                     <button
                       onClick={async () => {
                         try {
-                          const { data } = await axios.post(
-                            `/api/orders/${assignModal._id}/generate-waybill`,
+                          const { data } = await http.post(
+                            `/orders/${assignModal._id}/generate-waybill`,
                             {},
                             { withCredentials: true }
                           )
@@ -4346,7 +4346,7 @@ export default function SellerDashboard() {
   }
   const fetchOrders = async () => {
     try {
-      const { data } = await axios.get('/api/orders/seller', { withCredentials: true })
+      const { data } = await http.get('/orders/seller', { withCredentials: true })
       setOrders(data.data)
       localStorage.setItem('cached_seller_orders', JSON.stringify(data.data))
     } catch (err) {
@@ -4355,7 +4355,7 @@ export default function SellerDashboard() {
   }
   const fetchStats = async () => {
     try {
-      const { data } = await axios.get('/api/orders/seller/stats', { withCredentials: true })
+      const { data } = await http.get('/orders/seller/stats', { withCredentials: true })
       setStats(data.data)
       localStorage.setItem('cached_seller_stats', JSON.stringify(data.data))
     } catch (err) {
@@ -4365,7 +4365,7 @@ export default function SellerDashboard() {
 
   const fetchForecast = async () => {
     try {
-      const { data } = await axios.get('/api/orders/seller/forecast', { withCredentials: true })
+      const { data } = await http.get('/orders/seller/forecast', { withCredentials: true })
       setForecast(data.data)
       setGlobalRecs(data.global_recommendations || [])
       localStorage.setItem('cached_seller_forecast', JSON.stringify(data.data))
@@ -4544,11 +4544,7 @@ export default function SellerDashboard() {
 
   const handleUpdateStatus = async (orderId, newStatus) => {
     try {
-      await axios.put(
-        `/api/orders/${orderId}/status`,
-        { status: newStatus },
-        { withCredentials: true }
-      )
+      await http.put(`/orders/${orderId}/status`, { status: newStatus }, { withCredentials: true })
       fetchOrders()
     } catch (err) {
       console.error(err)
@@ -4557,8 +4553,8 @@ export default function SellerDashboard() {
 
   const handleGenerateWaybill = async (orderId) => {
     try {
-      const { data } = await axios.post(
-        `/api/orders/${orderId}/generate-waybill`,
+      const { data } = await http.post(
+        `/orders/${orderId}/generate-waybill`,
         {},
         { withCredentials: true }
       )

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import axios from 'axios'
+import http from '../../api/http'
 import {
   FaChevronLeft,
   FaChevronRight,
@@ -272,7 +272,7 @@ export default function BuyerDashboard() {
       if (search) params.append('search', search)
       if (category && category !== 'All') params.append('category', category)
 
-      const { data } = await axios.get(`/api/products?${params.toString()}`)
+      const { data } = await http.get(`/products?${params.toString()}`)
 
       if (requestId === requestCounter.current) {
         const fetchedProducts = data.data || []
@@ -293,7 +293,7 @@ export default function BuyerDashboard() {
 
   const handleAddToCart = async (productId, size) => {
     try {
-      await axios.post('/api/cart/add', { productId, quantity: 1, size }, { withCredentials: true })
+      await http.post('/cart/add', { productId, quantity: 1, size }, { withCredentials: true })
       window.dispatchEvent(new Event('cartUpdated'))
     } catch (_err) {
       alert('Sign in to start shopping')
@@ -303,7 +303,7 @@ export default function BuyerDashboard() {
   const fetchWishlist = async () => {
     try {
       if (!user) return
-      const { data } = await axios.get('/api/user/wishlist', { withCredentials: true })
+      const { data } = await http.get('/user/wishlist', { withCredentials: true })
       setWishlistIds(data.data.map((i) => i._id))
     } catch (err) {
       console.error(err)
@@ -313,7 +313,7 @@ export default function BuyerDashboard() {
   const toggleWishlist = async (productId) => {
     try {
       if (!user) return alert('Please sign in to add to wishlist')
-      await axios.post('/api/user/wishlist/toggle', { productId }, { withCredentials: true })
+      await http.post('/user/wishlist/toggle', { productId }, { withCredentials: true })
 
       // Update local state immediately for snappy feel
       setWishlistIds((prev) =>

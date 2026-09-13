@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import http from '../../api/http'
 import BuyerNavbar from '../../components/BuyerNavbar'
 import { FaPlus, FaEllipsisV, FaCrosshairs, FaMapMarkerAlt } from 'react-icons/fa'
 import { fetchStates } from '../../services/locationService'
@@ -31,7 +32,7 @@ export default function Addresses() {
 
   const fetchAddresses = async () => {
     try {
-      const { data } = await axios.get('/api/auth/me', { withCredentials: true })
+      const { data } = await http.get('/auth/me', { withCredentials: true })
       setAddresses(data.user?.savedAddresses || [])
     } catch (err) {
       console.error(err)
@@ -70,9 +71,9 @@ export default function Addresses() {
       }
 
       if (editingId) {
-        await axios.put(`/api/user/addresses/${editingId}`, addrData, { withCredentials: true })
+        await http.put(`/user/addresses/${editingId}`, addrData, { withCredentials: true })
       } else {
-        await axios.post('/api/user/addresses', addrData, { withCredentials: true })
+        await http.post('/user/addresses', addrData, { withCredentials: true })
       }
 
       setShowForm(false)
@@ -104,7 +105,7 @@ export default function Addresses() {
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this address?')) return
     try {
-      await axios.delete(`/api/user/addresses/${id}`, { withCredentials: true })
+      await http.delete(`/user/addresses/${id}`, { withCredentials: true })
       fetchAddresses()
     } catch (err) {
       console.error(err)

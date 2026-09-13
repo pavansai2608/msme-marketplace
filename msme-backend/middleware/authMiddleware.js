@@ -1,5 +1,5 @@
-const jwt = require('jsonwebtoken')
 const User = require('../models/User')
+const { verifyAccessToken } = require('../utils/tokens')
 
 exports.verifyToken = async (req, res, next) => {
   try {
@@ -13,17 +13,27 @@ exports.verifyToken = async (req, res, next) => {
 
     let decoded
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET)
+      decoded = verifyAccessToken(token)
     } catch (_error) {
-      return res.status(401).json({ success: false, message: 'Invalid token' })
+      // Expired or malformed. 'token_expired' tells the client it is worth
+      // calling /api/auth/refresh instead of bouncing straight to /login.
+      return res
+        .status(401)
+        .json({ success: false, message: 'Invalid token', code: 'token_expired' })
     }
 
-    // The JWT payload carries only { id }. Role and identity are read from the
-    // database on every request, so a deleted or demoted user loses access
-    // immediately instead of keeping it until the token expires.
-    const user = await User.findById(decoded.id).select('_id name email role')
+    // Role and identity are read from the database on every request, so a
+    // deleted or demoted user loses access immediately.
+    const user = await User.findById(decoded.id).select('_id name email role tokenVersion')
     if (!user) {
       return res.status(401).json({ success: false, message: 'Not authorized' })
+    }
+
+    // Token family revoked since this access token was minted.
+    if ((decoded.v || 0) !== (user.tokenVersion || 0)) {
+      return res
+        .status(401)
+        .json({ success: false, message: 'Token revoked', code: 'token_revoked' })
     }
 
     req.user = {
@@ -48,9 +58,9 @@ exports.optionalAuth = async (req, res, next) => {
     const token = req.cookies?.token || req.headers.authorization?.split(' ')[1]
     if (!token) return next()
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET)
-    const user = await User.findById(decoded.id).select('_id name email role')
-    if (user) {
+    const decoded = verifyAccessToken(token)
+    const user = await User.findById(decoded.id).select('_id name email role tokenVersion')
+    if (user && (decoded.v || 0) === (user.tokenVersion || 0)) {
       req.user = {
         id: user._id.toString(),
         _id: user._id,

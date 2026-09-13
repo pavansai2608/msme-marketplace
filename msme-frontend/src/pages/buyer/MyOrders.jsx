@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import http from '../../api/http'
 import { FaArrowLeft, FaBox, FaTruck, FaCheckCircle, FaShippingFast } from 'react-icons/fa'
 import BuyerNavbar from '../../components/BuyerNavbar'
 
@@ -24,7 +24,7 @@ export default function MyOrders() {
 
   const fetchOrders = async () => {
     try {
-      const { data } = await axios.get('/api/orders/my-orders', { withCredentials: true })
+      const { data } = await http.get('/orders/my-orders', { withCredentials: true })
       setOrders(data.data)
     } catch (err) {
       console.error(err)

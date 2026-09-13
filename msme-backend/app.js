@@ -14,23 +14,31 @@ const app = express()
 // Rocket-Fast performance middle-wares
 app.use(compression()) // Compresses all responses
 app.use(helmet({ contentSecurityPolicy: false }))
-app.use(cors({
-  origin: [
-    process.env.CLIENT_URL,
-    "http://localhost:3000",
-    "http://localhost:3001"
-  ].filter(Boolean),
-  credentials: true
-}))
+app.use(
+  cors({
+    origin: [process.env.CLIENT_URL, 'http://localhost:3000', 'http://localhost:3001'].filter(
+      Boolean
+    ),
+    credentials: true,
+  })
+)
 app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ limit: '50mb', extended: true }))
 app.use(cookieParser())
+
+// CSRF: hand out a readable token cookie, then require it echoed back in a
+// header on every state-changing request.
+const { issueCsrfCookie, csrfProtection } = require('./middleware/csrf')
+app.use(issueCsrfCookie)
+app.use(csrfProtection)
+
 app.use(passport.initialize())
 app.use(morgan('dev', { skip: (req) => req.url === '/health' || process.env.NODE_ENV === 'test' }))
 
 // Request ID middleware for tracing
 app.use((req, res, next) => {
-  req.id = req.headers['x-request-id'] || `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  req.id =
+    req.headers['x-request-id'] || `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
   res.setHeader('X-Request-ID', req.id)
   next()
 })
@@ -55,7 +63,9 @@ app.use((err, req, res, next) => {
 
   if (err.name === 'ValidationError') {
     statusCode = 400
-    message = Object.values(err.errors).map(val => val.message).join(', ')
+    message = Object.values(err.errors)
+      .map((val) => val.message)
+      .join(', ')
   }
 
   if (err.code === 11000) {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import http from '../../api/http'
 import BuyerNavbar from '../../components/BuyerNavbar'
 import { useAuth } from '../../context/AuthContext'
 import { FaUserEdit, FaEnvelope, FaIdBadge, FaCalendarAlt } from 'react-icons/fa'
@@ -22,7 +22,7 @@ export default function Profile() {
 
   const fetchProfile = async () => {
     try {
-      const { data } = await axios.get('/api/auth/me', { withCredentials: true })
+      const { data } = await http.get('/auth/me', { withCredentials: true })
       setProfile(data.user || {})
       setNewAvatar(data.user?.avatar || '')
       // Sync the global AuthContext too!
@@ -48,8 +48,8 @@ export default function Profile() {
     if (!newAvatar) return alert('Please select an image first')
     setUpdating(true)
     try {
-      const { data } = await axios.put(
-        '/api/auth/update-profile',
+      const { data } = await http.put(
+        '/auth/update-profile',
         { avatar: newAvatar },
         { withCredentials: true }
       )

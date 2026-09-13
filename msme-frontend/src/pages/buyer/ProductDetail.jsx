@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import axios from 'axios'
+import http from '../../api/http'
 import {
   FaStar,
   FaArrowLeft,
@@ -79,7 +79,7 @@ export default function ProductDetail() {
 
   const checkWishlistStatus = async () => {
     try {
-      const wishRes = await axios.get('/api/user/wishlist', { withCredentials: true })
+      const wishRes = await http.get('/user/wishlist', { withCredentials: true })
       const wishData = wishRes.data?.data || []
       const exists = wishData.some((w) => {
         if (!w) return false
@@ -96,7 +96,7 @@ export default function ProductDetail() {
     try {
       setLoading(true)
       console.log(`[ProductDetail] Fetching product with ID: ${id}`)
-      const { data } = await axios.get(`/api/products/${id}`)
+      const { data } = await http.get(`/products/${id}`)
       console.log(`[ProductDetail] Received data:`, data)
       if (data && data.success && data.data) {
         setProduct(data.data)
@@ -114,7 +114,7 @@ export default function ProductDetail() {
 
   const toggleWishlist = async () => {
     try {
-      await axios.post('/api/user/wishlist/toggle', { productId: id }, { withCredentials: true })
+      await http.post('/user/wishlist/toggle', { productId: id }, { withCredentials: true })
       setIsWished(!isWished)
       window.dispatchEvent(new Event('wishlistUpdated'))
       showToast(isWished ? 'Removed from wishlist' : 'Added to wishlist ❤️', 'success')
@@ -129,8 +129,8 @@ export default function ProductDetail() {
     if (sizeStock === 0) return showToast(`Size ${selectedSize} is out of stock`, 'error')
     setAddingToCart(true)
     try {
-      await axios.post(
-        '/api/cart/add',
+      await http.post(
+        '/cart/add',
         { productId: id, quantity, size: selectedSize },
         { withCredentials: true }
       )
@@ -149,8 +149,8 @@ export default function ProductDetail() {
     const sizeStock = product.sizes.find((s) => s.size === selectedSize)?.stock || 0
     if (sizeStock === 0) return showToast(`Size ${selectedSize} is out of stock`, 'error')
     try {
-      await axios.post(
-        '/api/cart/add',
+      await http.post(
+        '/cart/add',
         { productId: id, quantity, size: selectedSize },
         { withCredentials: true }
       )

@@ -2,14 +2,18 @@
 // integration - ordering, filtering, and the fallback when it is unavailable.
 jest.mock('../utils/recommender')
 
-const { app, request, registerUser, SELLER_DETAILS } = require('./helpers')
+const { app, request, registerUser, SELLER_DETAILS, csrfOf } = require('./helpers')
 const recommender = require('../utils/recommender')
 const Product = require('../models/Product')
 const User = require('../models/User')
 
 const seedProducts = async () => {
   const { cookie } = await registerUser('Seller One', 'seller1@test.com')
-  await request(app).post('/api/auth/become-seller').set('Cookie', cookie).send(SELLER_DETAILS)
+  await request(app)
+    .post('/api/auth/become-seller')
+    .set('Cookie', cookie)
+    .set('x-csrf-token', csrfOf(cookie))
+    .send(SELLER_DETAILS)
   const seller = await User.findOne({ email: 'seller1@test.com' })
 
   const make = (name, extra = {}) => ({
@@ -104,7 +108,10 @@ describe('GET /api/products/recommended', () => {
     const buyer = await User.findOne({ email: 'buyer1@test.com' })
     recommender.recommendForUser.mockResolvedValue([c._id.toString()])
 
-    const res = await request(app).get('/api/products/recommended').set('Cookie', cookie)
+    const res = await request(app)
+      .get('/api/products/recommended')
+      .set('Cookie', cookie)
+      .set('x-csrf-token', csrfOf(cookie))
 
     expect(res.status).toBe(200)
     expect(recommender.recommendForUser).toHaveBeenCalledWith(buyer._id.toString(), 10)
@@ -118,6 +125,7 @@ describe('GET /api/products/recommended', () => {
     const res = await request(app)
       .get('/api/products/recommended')
       .set('Cookie', 'token=not-a-real-jwt')
+      .set('x-csrf-token', csrfOf('token=not-a-real-jwt'))
 
     expect(res.status).toBe(200)
     expect(recommender.trending).toHaveBeenCalled()

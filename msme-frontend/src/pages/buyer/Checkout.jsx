@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import http from '../../api/http'
 import { FaArrowLeft, FaCheck, FaMapMarkerAlt, FaCrosshairs } from 'react-icons/fa'
 import { fetchStates } from '../../services/locationService'
 
@@ -67,7 +68,7 @@ export default function Checkout() {
 
   const fetchCart = async () => {
     try {
-      const { data } = await axios.get('/api/cart', { withCredentials: true })
+      const { data } = await http.get('/cart', { withCredentials: true })
       setCart(data.data)
     } catch (_err) {
       navigate('/login')
@@ -84,8 +85,8 @@ export default function Checkout() {
       return alert('Please fill all address fields')
     setPlacing(true)
     try {
-      const { data } = await axios.post(
-        '/api/orders/checkout',
+      const { data } = await http.post(
+        '/orders/checkout',
         {
           shippingAddress: address,
           paymentMethod,
