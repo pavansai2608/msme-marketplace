@@ -1,56 +1,472 @@
+@Library('msme-shared') _
+
+/**
+ * MSME marketplace - build, test, deploy, verify.
+ *
+ * Runs on the Jenkins controller itself (brew jenkins-lts on :8080), which is
+ * why every shell step is `sh` and the kubeconfig is read straight from the
+ * controller's home directory rather than injected as a credential.
+ *
+ * The pipeline never writes a secret to disk in the workspace and never
+ * interpolates one into a shell command. msme-backend/.env arrives as a
+ * Jenkins Secret file credential; only its PATH is ever handled here, and the
+ * file itself is sourced inside a subshell or handed to a script that reads it.
+ *
+ * See jenkins/README.md for the plugins and credential IDs this expects.
+ */
 pipeline {
-    agent any
+  agent any
 
-    environment {
-        MONGO_URL = credentials('MONGO_URL')
-        JWT_SECRET = credentials('JWT_SECRET')
-        GOOGLE_CLIENT_ID = credentials('GOOGLE_CLIENT_ID')
-        GOOGLE_CLIENT_SECRET = credentials('GOOGLE_CLIENT_SECRET')
+  options {
+    timeout(time: 30, unit: 'MINUTES')
+    buildDiscarder(logRotator(numToKeepStr: '10', artifactNumToKeepStr: '10'))
+    timestamps()
+    // One deploy at a time: the stages below build into a single shared
+    // minikube daemon and apply to a single namespace, so two concurrent
+    // builds would race over both.
+    disableConcurrentBuilds()
+    // Checkout is an explicit stage, so the implicit one would just be a
+    // duplicate clone.
+    skipDefaultCheckout(true)
+  }
+
+  parameters {
+    booleanParam(
+      name: 'DEPLOY_PROD',
+      defaultValue: false,
+      description: 'Offer the production promotion gate at the end of this build.'
+    )
+    booleanParam(
+      name: 'SKIP_E2E',
+      defaultValue: false,
+      description: 'Skip the Playwright stage. For a quick build-only run.'
+    )
+  }
+
+  environment {
+    // A brew LaunchAgent starts Jenkins with a bare PATH - no /opt/homebrew -
+    // so node, docker, kubectl and minikube are all missing unless said here.
+    PATH = "/opt/homebrew/bin:/usr/local/bin:${env.PATH}"
+
+    // Jenkins runs as the logged-in user, so this is the same cluster the
+    // developer sees from their own terminal.
+    KUBECONFIG = "${env.HOME}/.kube/config"
+    K8S_NAMESPACE = 'msme'
+    DEV_OVERLAY = 'k8s/overlays/dev'
+    PROD_OVERLAY = 'k8s/overlays/prod'
+
+    // The recommender pins scikit-learn and numpy builds that have no wheels
+    // for the newest CPython, so the interpreter is named rather than taken
+    // from whatever `python3` happens to be.
+    PYTHON_BIN = 'python3.11'
+
+    // Secret file credential holding msme-backend/.env. `credentials()` on a
+    // Secret file binds the PATH to the file, not its contents.
+    BACKEND_ENV = credentials('msme-backend-env')
+
+    PROD_REGISTRY = 'ghcr.io/pavansai2608'
+
+    // Playwright reaches the ingress through a port-forward plus Chromium's
+    // own resolver, so no /etc/hosts entry and no sudo is needed on the agent.
+    // See the comment at the top of msme-frontend/playwright.config.js.
+    E2E_PORT = '18088'
+    E2E_BASE_URL = 'http://msme.local'
+    E2E_HOST_MAP = 'msme.local 127.0.0.1:18088'
+    CI = 'true'
+  }
+
+  stages {
+
+    // ── 1 ────────────────────────────────────────────────────────────────────
+    stage('Checkout') {
+      steps {
+        checkout scm
+        script {
+          env.GIT_SHA = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+          env.GIT_BRANCH_NAME = sh(
+            script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true
+          ).trim()
+          currentBuild.displayName = "#${env.BUILD_NUMBER} ${env.GIT_SHA}"
+          currentBuild.description = env.GIT_BRANCH_NAME
+        }
+        sh 'git --no-pager log -1 --pretty="%h %an %s"'
+      }
     }
 
-    stages {
-
-        stage('Checkout Code') {
-            steps {
-                git branch: 'main',
-                    url: 'https://github.com/pavansai2608/msme-marketplace.git'
+    // ── 2 ────────────────────────────────────────────────────────────────────
+    stage('Lint') {
+      parallel {
+        stage('Frontend') {
+          steps {
+            dir('msme-frontend') {
+              sh 'npm ci --no-audit --no-fund'
+              sh 'npm run lint'
             }
+          }
         }
-
-        stage('Create Backend .env File') {
-            steps {
-                writeFile file: 'msme-backend/.env', text: """
-MONGO_URL=${MONGO_URL}
-JWT_SECRET=${JWT_SECRET}
-GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-PORT=5000
-"""
+        stage('Backend') {
+          steps {
+            dir('msme-backend') {
+              sh 'npm ci --no-audit --no-fund'
+              sh 'npm run lint'
             }
+          }
         }
-
-        stage('Stop Old Containers') {
-            steps {
-                bat 'docker compose down'
-            }
-        }
-
-        stage('Build Docker Images') {
-            steps {
-                bat 'docker compose build --no-cache'
-            }
-        }
-
-        stage('Run Containers') {
-            steps {
-                bat 'docker compose up -d'
-            }
-        }
-
-        stage('Verify Containers') {
-            steps {
-                bat 'docker ps'
-            }
-        }
+      }
     }
+
+    // ── 3 ────────────────────────────────────────────────────────────────────
+    stage('Unit tests') {
+      parallel {
+        stage('jest') {
+          steps {
+            dir('msme-backend') {
+              // mongodb-memory-server gives each suite its own mongod, so
+              // this needs no database and no secret.
+              sh 'npm run test:ci'
+            }
+          }
+          post {
+            always {
+              junit allowEmptyResults: false, testResults: 'msme-backend/test-results/jest-junit.xml'
+            }
+          }
+        }
+        stage('pytest') {
+          steps {
+            dir('msme-recommender') {
+              sh '''
+                set -eu
+                [ -x .venv/bin/python ] || "${PYTHON_BIN}" -m venv .venv
+                ./.venv/bin/python -m pip install --quiet --upgrade pip
+                ./.venv/bin/python -m pip install --quiet -r requirements.txt
+                ./.venv/bin/python -m pytest \
+                  --junitxml=test-results/pytest-junit.xml \
+                  --cov=app \
+                  --cov-report=xml:coverage.xml \
+                  --cov-report=term-missing
+              '''
+            }
+          }
+          post {
+            always {
+              junit allowEmptyResults: false,
+                    testResults: 'msme-recommender/test-results/pytest-junit.xml'
+            }
+          }
+        }
+      }
+    }
+
+    // ── 4 ────────────────────────────────────────────────────────────────────
+    stage('Build images') {
+      steps {
+        script {
+          // Build straight into the cluster's docker daemon: minikube then
+          // already has the image and there is no registry in the loop.
+          // The env has to be captured rather than `eval`-ed, because each sh
+          // step is its own shell and would lose it.
+          def minikubeEnv = sh(script: 'minikube docker-env --shell=none', returnStdout: true)
+            .trim()
+            .readLines()
+            .findAll { it.contains('=') }
+
+          withEnv(minikubeEnv) {
+            // `dev` is what k8s/overlays/dev pins, so the moving tag is what
+            // the cluster actually pulls; the SHA tag is what makes a given
+            // build identifiable after the fact.
+            ['msme-backend', 'msme-frontend', 'msme-recommender'].each { service ->
+              dockerBuildAndTag(name: service, tag: env.GIT_SHA, alsoTag: ['dev'])
+            }
+            sh 'docker images --filter=reference="msme-*" --format "{{.Repository}}:{{.Tag}} {{.Size}}"'
+          }
+        }
+      }
+    }
+
+    // ── 5 ────────────────────────────────────────────────────────────────────
+    stage('Deploy') {
+      steps {
+        // The Secret is rebuilt from the credential on every deploy, so a
+        // rotated key reaches the cluster without a manual step. make-secret.sh
+        // copies only the genuinely secret keys - the rest of .env is
+        // deployment config and belongs to the ConfigMap.
+        sh '''
+          set -eu
+          MSME_ENV_FILE="${BACKEND_ENV}" ./k8s/make-secret.sh "${K8S_NAMESPACE}"
+        '''
+
+        sh '''
+          set -eu
+          kubectl apply -k "${DEV_OVERLAY}"
+
+          # The dev overlay pins the moving `dev` tag, so an apply with no
+          # manifest change is a no-op and the new image would never be picked
+          # up. The restart is what actually rolls this build out.
+          kubectl -n "${K8S_NAMESPACE}" rollout restart \
+            deployment/msme-backend deployment/msme-frontend deployment/msme-recommender
+
+          for d in msme-backend msme-frontend msme-recommender; do
+            kubectl -n "${K8S_NAMESPACE}" rollout status "deployment/$d" --timeout=300s
+          done
+
+          kubectl -n "${K8S_NAMESPACE}" get pods -o wide
+        '''
+
+        // Proves the ingress itself routes, not just that the pods are up.
+        //
+        // Through a port-forward rather than `minikube ip`: with the docker
+        // driver on macOS the node IP is inside a container network the host
+        // cannot reach, so curling it returns 000 however healthy the cluster
+        // is. The tunnel lives and dies inside this one sh step, so it needs
+        // no dontKillMe.
+        sh '''
+          set -eu
+          SMOKE_PORT=18099
+
+          kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller \
+            "${SMOKE_PORT}:80" > smoke-forward.log 2>&1 &
+          PF_PID=$!
+          trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
+
+          ready=0
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null --max-time 3 -H 'Host: msme.local' \
+                 "http://127.0.0.1:${SMOKE_PORT}/" 2>/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          [ "$ready" = "1" ] || {
+            echo "ingress tunnel never came up:"; cat smoke-forward.log; exit 1;
+          }
+
+          # / is the SPA, /api proves the ingress splits the two backends, and
+          # /buyer proves the SPA fallback rather than a 404 on a deep link.
+          for path in / /api/products/categories /buyer; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+              -H 'Host: msme.local' "http://127.0.0.1:${SMOKE_PORT}${path}")"
+            echo "ingress ${path} -> ${code}"
+            [ "$code" = "200" ] || { echo "ingress smoke test failed on ${path}"; exit 1; }
+          done
+          echo "ingress smoke test passed"
+        '''
+      }
+    }
+
+    // ── 6 ────────────────────────────────────────────────────────────────────
+    stage('E2E') {
+      when {
+        expression { !params.SKIP_E2E }
+        beforeAgent true
+      }
+      steps {
+        // Fixture accounts and the fixture product, plus a purge of whatever
+        // the previous run created. MONGO_URL is read inside the subshell and
+        // never enters the Jenkins environment.
+        // Atlas intermittently times out selecting a replica-set member. That
+        // is the connection, not the script, and a second attempt gets it -
+        // so the build should not go red over it.
+        retry(3) {
+          dir('msme-backend') {
+            sh '''
+              set -eu
+              ( set -a; . "${BACKEND_ENV}"; set +a; node scripts/seedE2E.js )
+            '''
+          }
+        }
+
+        dir('msme-frontend') {
+          sh 'npx playwright install chromium'
+        }
+
+        script {
+          try {
+            sh '''
+              set -eu
+              # dontKillMe keeps the process-tree killer from reaping the
+              # tunnel the moment this sh step returns.
+              JENKINS_NODE_COOKIE=dontKillMe nohup kubectl port-forward \
+                -n ingress-nginx svc/ingress-nginx-controller "${E2E_PORT}:80" \
+                > port-forward.log 2>&1 &
+              echo $! > port-forward.pid
+
+              # Poll for the tunnel rather than guessing how long it takes.
+              for _ in $(seq 1 60); do
+                if curl -fsS -o /dev/null --max-time 3 \
+                     -H 'Host: msme.local' "http://127.0.0.1:${E2E_PORT}/" 2>/dev/null; then
+                  echo "ingress tunnel ready on 127.0.0.1:${E2E_PORT}"
+                  exit 0
+                fi
+                sleep 1
+              done
+
+              echo "port-forward never answered:"; cat port-forward.log
+              exit 1
+            '''
+
+            dir('msme-frontend') {
+              sh 'npx playwright test'
+            }
+          } finally {
+            sh '''
+              if [ -f port-forward.pid ]; then
+                kill "$(cat port-forward.pid)" 2>/dev/null || true
+                rm -f port-forward.pid
+              fi
+            '''
+          }
+        }
+      }
+      post {
+        always {
+          junit allowEmptyResults: true,
+                testResults: 'msme-frontend/test-results/e2e-junit.xml'
+        }
+      }
+    }
+
+    // ── 7 ────────────────────────────────────────────────────────────────────
+    stage('Publish') {
+      steps {
+        // A reporting problem should be visible without turning a green build
+        // red: the code passed its tests either way.
+        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE',
+                   message: 'Report publishing failed - check the coverage and htmlpublisher plugins') {
+          recordCoverage(
+            name: 'Backend + recommender coverage',
+            tools: [
+              [parser: 'COBERTURA', pattern: 'msme-backend/coverage/cobertura-coverage.xml'],
+              [parser: 'COBERTURA', pattern: 'msme-recommender/coverage.xml'],
+            ],
+            sourceCodeRetention: 'EVERY_BUILD'
+          )
+
+          publishHTML(target: [
+            reportName: 'Playwright E2E',
+            reportDir: 'msme-frontend/playwright-report',
+            reportFiles: 'index.html',
+            keepAll: true,
+            alwaysLinkToLastBuild: true,
+            allowMissing: true,
+          ])
+        }
+      }
+    }
+
+    // ── Production gate ──────────────────────────────────────────────────────
+    // Nothing reaches production without a person saying so. The confirmation
+    // echoes the SHA back, so approving the wrong queued build takes a
+    // deliberate mistake rather than a reflex click.
+    stage('Approve production release') {
+      when {
+        expression { params.DEPLOY_PROD }
+        beforeAgent true
+      }
+      input {
+        message 'Promote this build to production?'
+        ok 'Promote'
+        submitterParameter 'APPROVED_BY'
+        parameters {
+          string(
+            name: 'CONFIRM_SHA',
+            defaultValue: '',
+            description: 'Type the short SHA shown in this build to confirm.'
+          )
+        }
+      }
+      steps {
+        script {
+          if (env.CONFIRM_SHA?.trim() != env.GIT_SHA) {
+            error("Confirmation '${env.CONFIRM_SHA}' does not match this build (${env.GIT_SHA}).")
+          }
+          echo "Production release of ${env.GIT_SHA} approved by ${env.APPROVED_BY}"
+        }
+      }
+    }
+
+    stage('Promote to production') {
+      when {
+        expression { params.DEPLOY_PROD }
+        beforeAgent true
+      }
+      environment {
+        GHCR = credentials('msme-ghcr-credentials')
+        PROD_KUBECONFIG = credentials('msme-prod-kubeconfig')
+      }
+      steps {
+        script {
+          // Built against the HOST daemon this time, not minikube's: these
+          // images are going to a registry, not to the local cluster.
+          ['msme-backend', 'msme-frontend', 'msme-recommender'].each { service ->
+            dockerBuildAndTag(
+              name: service,
+              tag: env.GIT_SHA,
+              registry: env.PROD_REGISTRY
+            )
+          }
+        }
+
+        sh '''
+          set -eu
+          # --password-stdin: the token never appears in a command line or in
+          # the process table.
+          echo "${GHCR_PSW}" | docker login ghcr.io -u "${GHCR_USR}" --password-stdin
+
+          for service in msme-backend msme-frontend msme-recommender; do
+            docker push "${PROD_REGISTRY}/${service}:${GIT_SHA}"
+          done
+
+          docker logout ghcr.io
+        '''
+
+        sh '''
+          set -eu
+          # The prod overlay carries :latest as a placeholder - the comment in
+          # it says the release job stamps the real tag in. This is that stamp.
+          # The pattern is anchored to an image: line on the prod registry so
+          # it cannot touch anything else in the rendered manifests.
+          kubectl kustomize "${PROD_OVERLAY}" \
+            | sed -E "s|(image: ${PROD_REGISTRY}/[a-z-]+):latest|\\1:${GIT_SHA}|g" \
+            | kubectl --kubeconfig="${PROD_KUBECONFIG}" apply -f -
+
+          for d in msme-backend msme-frontend msme-recommender; do
+            kubectl --kubeconfig="${PROD_KUBECONFIG}" -n "${K8S_NAMESPACE}" \
+              rollout status "deployment/$d" --timeout=600s
+          done
+        '''
+      }
+    }
+  }
+
+  post {
+    always {
+      // Every junit XML the build produced, whichever stages ran.
+      junit allowEmptyResults: true, testResults: '**/test-results/*junit*.xml'
+
+      archiveArtifacts(
+        artifacts: [
+          'msme-*/test-results/**',
+          'msme-backend/coverage/cobertura-coverage.xml',
+          'msme-recommender/coverage.xml',
+          'msme-frontend/playwright-report/**',
+          'port-forward.log',
+        ].join(','),
+        allowEmptyArchive: true,
+        fingerprint: false
+      )
+
+      // Last: it deletes everything the steps above just read.
+      cleanWs()
+    }
+    failure {
+      echo "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${env.GIT_SHA ?: 'unknown commit'})"
+      echo "Stage logs: ${env.BUILD_URL}console"
+      echo 'Playwright traces and screenshots for a failed E2E run are in the archived artifacts.'
+    }
+    unstable {
+      echo "UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER} - tests passed but a report did not publish."
+    }
+  }
 }
