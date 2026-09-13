@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: msme-recommender
+  labels:
+    app.kubernetes.io/name: msme-recommender
+    app.kubernetes.io/part-of: msme-marketplace
+spec:
+  # One replica on purpose: each pod builds its own TF-IDF index in memory, so
+  # a second would double the Atlas read on startup without sharing anything.
+  # The backend already treats the recommender as optional and falls back.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: msme-recommender
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: msme-recommender
+        app.kubernetes.io/part-of: msme-marketplace
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: recommender
+          image: msme-recommender:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: MONGO_URL
+              valueFrom:
+                secretKeyRef:
+                  name: msme-secrets
+                  key: MONGO_URL
+            - name: CONTENT_WEIGHT
+              valueFrom:
+                configMapKeyRef:
+                  name: msme-config
+                  key: CONTENT_WEIGHT
+            - name: COLLAB_WEIGHT
+              valueFrom:
+                configMapKeyRef:
+                  name: msme-config
+                  key: COLLAB_WEIGHT
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Indexing 200 products and 300 orders from Atlas takes longer than a
+          # plain HTTP boot, so startup gets its own generous budget.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          resources:
+            requests:
+              # scikit-learn and numpy are memory-hungry even when idle.
+              cpu: 150m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

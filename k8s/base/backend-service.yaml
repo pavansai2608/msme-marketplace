@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: msme-backend
+  labels:
+    app.kubernetes.io/name: msme-backend
+    app.kubernetes.io/part-of: msme-marketplace
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: msme-backend
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http

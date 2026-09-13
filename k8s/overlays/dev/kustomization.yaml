@@ -1,0 +1,73 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: msme
+
+resources:
+  - ../../base
+
+# Local images built straight into the minikube docker daemon, so there is no
+# registry and nothing to pull.
+images:
+  - name: msme-backend
+    newTag: dev
+  - name: msme-frontend
+    newTag: dev
+  - name: msme-recommender
+    newTag: dev
+
+patches:
+  # One replica each is plenty on a laptop, and it halves the Atlas
+  # connections while developing.
+  - target:
+      kind: Deployment
+      name: msme-backend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: Deployment
+      name: msme-frontend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # Dev talks plain HTTP over the minikube ingress, so cookies must not be
+  # marked Secure and the OAuth callback points at the local host.
+  - target:
+      kind: ConfigMap
+      name: msme-config
+    patch: |-
+      - op: replace
+        path: /data/NODE_ENV
+        value: development
+      - op: replace
+        path: /data/CLIENT_URL
+        value: http://msme.local
+      - op: replace
+        path: /data/GOOGLE_CALLBACK_URL
+        value: http://msme.local/api/auth/google/callback
+
+  # metrics-server on a fresh minikube can take a minute to report, and an HPA
+  # with no metrics just logs errors. Kept, but it will not scale below 1.
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: msme-backend
+    patch: |-
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+
+  # A shared laptop cluster is usually carrying other namespaces, and the
+  # scheduler compares REQUESTS against allocatable - so an over-generous
+  # request leaves the pod Pending even on an idle node. The limit is
+  # unchanged, so the service can still burst to 1Gi if the index grows.
+  - target:
+      kind: Deployment
+      name: msme-recommender
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 256Mi

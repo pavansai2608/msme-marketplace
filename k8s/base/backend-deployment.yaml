@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: msme-backend
+  labels:
+    app.kubernetes.io/name: msme-backend
+    app.kubernetes.io/part-of: msme-marketplace
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: msme-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: msme-backend
+        app.kubernetes.io/part-of: msme-marketplace
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: backend
+          image: msme-backend:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5000
+          # Order matters: later entries win on a key collision. The Secret is
+          # built from msme-backend/.env, which also carries deployment-local
+          # values like CLIENT_URL and NODE_ENV. Listing the ConfigMap last
+          # means the cluster's config always beats a stale laptop .env.
+          envFrom:
+            - secretRef:
+                name: msme-secrets
+            - configMapRef:
+                name: msme-config
+          # Liveness only asks "is this process still serving?". It must not
+          # depend on Atlas: a database blip would otherwise restart every pod
+          # in a loop and turn a recoverable outage into an outage plus a
+          # crash-loop.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Readiness gates traffic. Same endpoint, tighter cadence, so a pod
+          # that is briefly wedged is pulled from the Service without dying.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Startup probe covers the Atlas handshake, which has taken up to
+          # ~20s from here. Without it the liveness probe would fire first and
+          # kill the pod before it ever finished booting.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # readOnlyRootFilesystem leaves nowhere to write; anything that needs
+          # scratch space gets an explicit emptyDir.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
