@@ -71,3 +71,45 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/resources/requests/memory
         value: 256Mi
+
+  # Roll by replacing, not by surging.
+  #
+  # The base uses maxUnavailable: 0 / maxSurge: 1, which is right for
+  # production: the new pod is Ready before the old one goes. On a laptop
+  # cluster that is already at ~99% of allocatable memory there is no room for
+  # that extra pod, so the surge pod sits Pending, the old one never
+  # terminates, and `rollout status` times out - the deploy looks broken when
+  # the node is simply full. With one replica in dev the momentary gap costs
+  # nothing, and the restart actually completes.
+  - target:
+      kind: Deployment
+      name: msme-backend
+    patch: |-
+      - op: replace
+        path: /spec/strategy/rollingUpdate
+        value:
+          maxUnavailable: 1
+          maxSurge: 0
+  - target:
+      kind: Deployment
+      name: msme-frontend
+    patch: |-
+      - op: replace
+        path: /spec/strategy/rollingUpdate
+        value:
+          maxUnavailable: 1
+          maxSurge: 0
+  # The recommender has no strategy block in the base, so this adds one rather
+  # than replacing it. Its default (25% of one replica, rounded down) is
+  # maxUnavailable 0 - the same surge-first behaviour.
+  - target:
+      kind: Deployment
+      name: msme-recommender
+    patch: |-
+      - op: add
+        path: /spec/strategy
+        value:
+          type: RollingUpdate
+          rollingUpdate:
+            maxUnavailable: 1
+            maxSurge: 0
