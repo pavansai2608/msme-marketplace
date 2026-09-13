@@ -1,8 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useForm, useFieldArray } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 import * as productApi from '../../api/productApi'
 import http from '../../api/http'
+import { qk } from '../../lib/queryClient'
+import { productFormSchema, toProductPayload, toProductForm } from '../../lib/schemas'
+import { useToast } from '../../components/Toast'
+import {
+  useSellerProducts,
+  useSellerOrders,
+  useSellerStats,
+  useSellerForecast,
+} from '../../hooks/useSeller'
 import SellerOnboarding from './SellerOnboarding'
 import { fetchStates, fetchDistricts } from '../../services/locationService'
 import {
@@ -849,6 +861,8 @@ const CATEGORY_SIZES = [
 ]
 
 const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL']
+const FIELD_ERROR = { color: '#DC2626', fontSize: 11, marginTop: 6, fontWeight: 600 }
+
 function getSizeConfig(category) {
   if (!category) return { label: 'Size / Quantity', sizes: DEFAULT_SIZES }
   const c = category.toLowerCase().trim()
@@ -1017,16 +1031,18 @@ function SchemesTab() {
   const [allStates, setAllStates] = useState(['All India'])
   const [successScheme, setSuccessScheme] = useState(null)
 
-  // Use cached data for instant initial render
-  const [schemes, setSchemes] = useState(() => {
-    try {
-      const cached = localStorage.getItem('cached_schemes')
-      return cached ? JSON.parse(cached) : []
-    } catch {
-      return []
-    }
+  // Keyed on the filters, so switching back to a previously-viewed
+  // district/category pair is instant and does not re-request.
+  const { data: schemes = [], isPending: loadingSchemes } = useQuery({
+    queryKey: qk.seller.schemes(`${districtFilter}|${categoryFilter}`),
+    queryFn: () =>
+      http
+        .get(
+          `/schemes?district=${encodeURIComponent(districtFilter)}&category=${encodeURIComponent(categoryFilter)}`
+        )
+        .then((r) => r.data?.data ?? []),
+    staleTime: 10 * 60_000,
   })
-  const [loadingSchemes, setLoadingSchemes] = useState(schemes.length === 0)
 
   useEffect(() => {
     fetchStates()
@@ -1035,21 +1051,6 @@ function SchemesTab() {
       })
       .catch((_err) => setAllStates(['All India', 'Maharashtra', 'Karnataka', 'Gujarat']))
   }, [])
-
-  const fetchSchemes = async () => {
-    // Only show full-page loader if we have no cached data at all
-    if (schemes.length === 0) setLoadingSchemes(true)
-    try {
-      const url = `/schemes?district=${encodeURIComponent(districtFilter)}&category=${encodeURIComponent(categoryFilter)}`
-      const { data } = await http.get(url)
-      setSchemes(data.data || [])
-      localStorage.setItem('cached_schemes', JSON.stringify(data.data))
-    } catch (err) {
-      console.error('Failed to fetch schemes via API', err.response?.data || err.message)
-    } finally {
-      setLoadingSchemes(false)
-    }
-  }
 
   const [applying, setApplying] = useState(null)
   const handleApply = (schemeTitle) => {
@@ -1060,10 +1061,6 @@ function SchemesTab() {
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }, 800)
   }
-
-  useEffect(() => {
-    fetchSchemes()
-  }, [districtFilter, categoryFilter])
 
   const categories = ['All Categories', 'Manufacturing', 'Service', 'General', 'Retail']
 
@@ -1294,6 +1291,7 @@ function SchemesTab() {
 }
 
 function LogisticsTab({ orders, onRefresh }) {
+  const toast = useToast()
   const [trackingId, setTrackingId] = useState('')
   const [trackResult, setTrackResult] = useState(null)
   const [tracking, setTracking] = useState(false)
@@ -1371,7 +1369,10 @@ function LogisticsTab({ orders, onRefresh }) {
 
   // Assign carrier to order
   const handleAssign = async () => {
-    if (!assignAWB.trim()) return alert('Enter an AWB / tracking number')
+    if (!assignAWB.trim()) {
+      toast.error('Enter an AWB / tracking number')
+      return
+    }
     setAssigning(true)
     try {
       await http.put(
@@ -1387,7 +1388,7 @@ function LogisticsTab({ orders, onRefresh }) {
       setAssignAWB('')
       if (onRefresh) onRefresh()
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to assign carrier')
+      toast.error(err.response?.data?.message || 'Failed to assign carrier')
     } finally {
       setAssigning(false)
     }
@@ -1545,7 +1546,7 @@ function LogisticsTab({ orders, onRefresh }) {
                           )
                           setAssignAWB(data.trackingId)
                         } catch (_err) {
-                          alert('Failed to generate AWB')
+                          toast.error('Failed to generate AWB')
                         }
                       }}
                       style={{
@@ -3891,33 +3892,48 @@ function AccountTab({
   )
 }
 
-function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }) {
-  const sizeConfig = getSizeConfig(newProduct.category)
+// The create/edit listing form. Validation comes from productSchema, so the
+// price, image URLs and size rows are checked before anything is sent.
+function ProductForm({ newProduct, isEditing, onSubmit, onClose }) {
+  const {
+    register,
+    handleSubmit,
+    control,
+    watch,
+    setValue,
+    formState: { errors, isSubmitting },
+  } = useForm({
+    resolver: zodResolver(productFormSchema),
+    mode: 'onBlur',
+    defaultValues: toProductForm(newProduct),
+  })
 
-  const updateImageField = (idx, val) => {
-    const updated = [...newProduct.images]
-    updated[idx] = val
-    setNewProduct({ ...newProduct, images: updated })
-  }
-  const removeImageField = (idx) =>
-    setNewProduct({ ...newProduct, images: newProduct.images.filter((_, i) => i !== idx) })
-  const addImageField = () => setNewProduct({ ...newProduct, images: [...newProduct.images, ''] })
+  const images = useFieldArray({ control, name: 'images' })
+  const rawMaterials = useFieldArray({ control, name: 'rawMaterials' })
+  const sizes = useFieldArray({ control, name: 'sizes' })
 
-  const addRawMaterial = () =>
-    setNewProduct({
-      ...newProduct,
-      rawMaterials: [...newProduct.rawMaterials, { name: '', quantityPerUnit: 1, stock: 0 }],
-    })
-  const updateRawMaterial = (idx, field, val) => {
-    const updated = [...newProduct.rawMaterials]
-    updated[idx] = { ...updated[idx], [field]: field === 'name' ? val : parseFloat(val) || 0 }
-    setNewProduct({ ...newProduct, rawMaterials: updated })
+  const category = watch('category')
+  const sizeConfig = getSizeConfig(category)
+
+  // Changing the category swaps the whole size vocabulary (Colour variants for
+  // phones, S/M/L for clothing, kg for spices), so the rows are regenerated -
+  // but stock already entered against a size that survives the switch is kept.
+  const applyCategorySizes = (nextCategory) => {
+    const { sizes: nextSizes } = getSizeConfig(nextCategory)
+    const current = watch('sizes') || []
+    setValue(
+      'sizes',
+      nextSizes.map((size) => ({
+        size,
+        stock: current.find((s) => s.size === size)?.stock ?? 0,
+      })),
+      { shouldValidate: false }
+    )
   }
-  const removeRawMaterial = (idx) =>
-    setNewProduct({
-      ...newProduct,
-      rawMaterials: newProduct.rawMaterials.filter((_, i) => i !== idx),
-    })
+
+  // useFieldArray gives images a stable key per row; a bare index would make
+  // React reuse the wrong input when a middle row is removed.
+  const fieldError = (path) => path?.message || (typeof path === 'string' ? path : null)
 
   return (
     <div
@@ -3963,26 +3979,25 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
           Fill in product details. Advanced inventory options enabled.
         </p>
 
-        <form onSubmit={onSubmit}>
+        <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
             <div className="input-group">
               <label className="input-label">Product Name</label>
               <input
                 type="text"
                 className="input-field"
-                required
-                value={newProduct.name}
-                onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                aria-invalid={Boolean(errors.name)}
+                {...register('name')}
                 placeholder="e.g. Silk Saree"
               />
+              {errors.name && <div style={FIELD_ERROR}>{fieldError(errors.name)}</div>}
             </div>
             <div className="input-group">
               <label className="input-label">SKU (Optional)</label>
               <input
                 type="text"
                 className="input-field"
-                value={newProduct.sku}
-                onChange={(e) => setNewProduct({ ...newProduct, sku: e.target.value })}
+                {...register('sku')}
                 placeholder="Auto-generated if empty"
               />
             </div>
@@ -3991,19 +4006,13 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
               <input
                 type="text"
                 className="input-field"
-                required
-                value={newProduct.category}
                 placeholder="e.g. Saree, Shirt..."
-                onChange={(e) => {
-                  const cat = e.target.value
-                  const { sizes } = getSizeConfig(cat)
-                  setNewProduct({
-                    ...newProduct,
-                    category: cat,
-                    sizes: sizes.map((s) => ({ size: s, stock: 0 })),
-                  })
-                }}
+                aria-invalid={Boolean(errors.category)}
+                {...register('category', {
+                  onChange: (e) => applyCategorySizes(e.target.value),
+                })}
               />
+              {errors.category && <div style={FIELD_ERROR}>{fieldError(errors.category)}</div>}
             </div>
           </div>
 
@@ -4019,10 +4028,7 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
               <label className="input-label">Status</label>
               <select
                 className="input-field"
-                value={newProduct.isActive}
-                onChange={(e) =>
-                  setNewProduct({ ...newProduct, isActive: e.target.value === 'true' })
-                }
+                {...register('isActive', { setValueAs: (v) => v === true || v === 'true' })}
               >
                 <option value="true">Active / Published</option>
                 <option value="false">Inactive / Hidden</option>
@@ -4033,21 +4039,14 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
               <input
                 type="number"
                 className="input-field"
-                value={newProduct.lowStockThreshold}
-                onChange={(e) =>
-                  setNewProduct({ ...newProduct, lowStockThreshold: parseInt(e.target.value) || 0 })
-                }
+                {...register('lowStockThreshold', { valueAsNumber: true })}
               />
             </div>
             <div
               className="input-group"
               style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingTop: '32px' }}
             >
-              <input
-                type="checkbox"
-                checked={newProduct.autoDelist}
-                onChange={(e) => setNewProduct({ ...newProduct, autoDelist: e.target.checked })}
-              />
+              <input type="checkbox" {...register('autoDelist')} />
               <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>
                 Auto-delist when out of stock
               </label>
@@ -4059,10 +4058,10 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
             <textarea
               className="input-field"
               style={{ minHeight: '80px', resize: 'vertical' }}
-              required
-              value={newProduct.description}
-              onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })}
+              aria-invalid={Boolean(errors.description)}
+              {...register('description')}
             />
+            {errors.description && <div style={FIELD_ERROR}>{fieldError(errors.description)}</div>}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px' }}>
@@ -4070,16 +4069,17 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
               <label className="input-label">Price (₹)</label>
               <input
                 type="number"
+                step="0.01"
                 className="input-field"
-                required
-                value={newProduct.price}
-                onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
+                aria-invalid={Boolean(errors.price)}
+                {...register('price')}
               />
+              {errors.price && <div style={FIELD_ERROR}>{fieldError(errors.price)}</div>}
             </div>
             <div className="input-group">
               <label className="input-label">Product Images (URLs)</label>
-              {newProduct.images.map((url, idx) => (
-                <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+              {images.fields.map((field, idx) => (
+                <div key={field.id} style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
                   <div style={{ flex: 1, position: 'relative' }}>
                     <FaImage
                       style={{ position: 'absolute', left: 12, top: 15, color: '#94a3b8' }}
@@ -4089,14 +4089,17 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
                       className="input-field"
                       style={{ paddingLeft: '40px' }}
                       placeholder="https://image-url.com"
-                      value={url}
-                      onChange={(e) => updateImageField(idx, e.target.value)}
+                      aria-invalid={Boolean(errors.images?.[idx]?.url)}
+                      {...register(`images.${idx}.url`)}
                     />
+                    {errors.images?.[idx]?.url && (
+                      <div style={FIELD_ERROR}>{fieldError(errors.images[idx].url)}</div>
+                    )}
                   </div>
-                  {newProduct.images.length > 1 && (
+                  {images.fields.length > 1 && (
                     <button
                       type="button"
-                      onClick={() => removeImageField(idx)}
+                      onClick={() => images.remove(idx)}
                       style={{
                         background: '#fee2e2',
                         border: 'none',
@@ -4111,9 +4114,10 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
                   )}
                 </div>
               ))}
+              {errors.images?.message && <div style={FIELD_ERROR}>{errors.images.message}</div>}
               <button
                 type="button"
-                onClick={addImageField}
+                onClick={() => images.append({ url: '' })}
                 className="btn-outline"
                 style={{
                   fontSize: '0.8rem',
@@ -4140,8 +4144,8 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
           >
             <label className="input-label">Stock by {sizeConfig.label}</label>
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '12px' }}>
-              {newProduct.sizes.map((s, idx) => (
-                <div key={s.size} style={{ textAlign: 'center', minWidth: '60px' }}>
+              {sizes.fields.map((field, idx) => (
+                <div key={field.id} style={{ textAlign: 'center', minWidth: '60px' }}>
                   <div
                     style={{
                       fontSize: '0.7rem',
@@ -4151,26 +4155,20 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {s.size}
+                    {watch(`sizes.${idx}.size`)}
                   </div>
+                  <input type="hidden" {...register(`sizes.${idx}.size`)} />
                   <input
                     type="number"
                     min="0"
                     className="input-field"
                     style={{ padding: '8px', textAlign: 'center', width: '60px' }}
-                    value={s.stock}
-                    onChange={(e) => {
-                      const updatedSizes = [...newProduct.sizes]
-                      updatedSizes[idx] = {
-                        ...updatedSizes[idx],
-                        stock: parseInt(e.target.value) || 0,
-                      }
-                      setNewProduct({ ...newProduct, sizes: updatedSizes })
-                    }}
+                    {...register(`sizes.${idx}.stock`)}
                   />
                 </div>
               ))}
             </div>
+            {errors.sizes?.message && <div style={FIELD_ERROR}>{errors.sizes.message}</div>}
           </div>
 
           {/* Raw Materials Tracker */}
@@ -4196,22 +4194,22 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
               </label>
               <button
                 type="button"
-                onClick={addRawMaterial}
+                onClick={() => rawMaterials.append({ name: '', quantityPerUnit: 1, stock: 0 })}
                 className="btn-outline"
                 style={{ fontSize: '0.75rem', padding: '6px 12px' }}
               >
                 + Add Material
               </button>
             </div>
-            {newProduct.rawMaterials.length === 0 ? (
+            {rawMaterials.fields.length === 0 ? (
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
                 No raw materials tracked for this product.
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {newProduct.rawMaterials.map((rm, idx) => (
+                {rawMaterials.fields.map((field, idx) => (
                   <div
-                    key={idx}
+                    key={field.id}
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '2fr 1fr 1fr 40px',
@@ -4223,26 +4221,23 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
                       type="text"
                       className="input-field"
                       placeholder="Material Name"
-                      value={rm.name}
-                      onChange={(e) => updateRawMaterial(idx, 'name', e.target.value)}
+                      {...register(`rawMaterials.${idx}.name`)}
                     />
                     <input
                       type="number"
                       className="input-field"
                       placeholder="Qty / Unit"
-                      value={rm.quantityPerUnit}
-                      onChange={(e) => updateRawMaterial(idx, 'quantityPerUnit', e.target.value)}
+                      {...register(`rawMaterials.${idx}.quantityPerUnit`, { valueAsNumber: true })}
                     />
                     <input
                       type="number"
                       className="input-field"
                       placeholder="In Stock"
-                      value={rm.stock}
-                      onChange={(e) => updateRawMaterial(idx, 'stock', e.target.value)}
+                      {...register(`rawMaterials.${idx}.stock`, { valueAsNumber: true })}
                     />
                     <button
                       type="button"
-                      onClick={() => removeRawMaterial(idx)}
+                      onClick={() => rawMaterials.remove(idx)}
                       style={{
                         color: '#ef4444',
                         background: 'none',
@@ -4267,8 +4262,13 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
             >
               Cancel
             </button>
-            <button type="submit" className="btn-primary" style={{ padding: '12px 40px' }}>
-              {isEditing ? 'Save Changes' : 'Create Listing'}
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={isSubmitting}
+              style={{ padding: '12px 40px' }}
+            >
+              {isSubmitting ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Listing'}
             </button>
           </div>
         </form>
@@ -4280,51 +4280,35 @@ function ProductForm({ newProduct, setNewProduct, isEditing, onSubmit, onClose }
 // ── Main Dashboard Component ─────────────────────────────────────────────────
 export default function SellerDashboard() {
   const { user, setUser, logout, refreshUser } = useAuth()
+  const queryClient = useQueryClient()
+  const toast = useToast()
   const [activeTab, setActiveTab] = useState(() => {
     return localStorage.getItem('seller_active_tab') || 'overview'
   })
 
-  // Initialize from cache for "instant" feel
-  const [products, setProducts] = useState(() => {
-    try {
-      const cached = localStorage.getItem('cached_seller_products')
-      return cached ? JSON.parse(cached) : []
-    } catch {
-      return []
-    }
-  })
+  // Server state lives in React Query, keyed per seller query. The four
+  // localStorage caches this replaced could not be invalidated and survived
+  // sign-out, so one seller could briefly see another's inventory.
+  const isComplete = !!user?.businessName || user?.isProfileComplete === true
 
-  const [orders, setOrders] = useState(() => {
-    try {
-      const cached = localStorage.getItem('cached_seller_orders')
-      return cached ? JSON.parse(cached) : []
-    } catch {
-      return []
-    }
-  })
+  const productsQuery = useSellerProducts({ enabled: isComplete })
+  const ordersQuery = useSellerOrders({ enabled: isComplete })
+  const statsQuery = useSellerStats({ enabled: isComplete })
+  const forecastQuery = useSellerForecast({ enabled: isComplete })
 
-  const [stats, setStats] = useState(() => {
-    try {
-      const cached = localStorage.getItem('cached_seller_stats')
-      return cached ? JSON.parse(cached) : { totalSales: 0, activeOrders: 0 }
-    } catch {
-      return { totalSales: 0, activeOrders: 0 }
-    }
-  })
+  const products = productsQuery.data ?? []
+  const orders = ordersQuery.data ?? []
+  const stats = statsQuery.data ?? { totalSales: 0, activeOrders: 0 }
+  const forecast = forecastQuery.data?.data ?? []
+  const globalRecs = forecastQuery.data?.global_recommendations ?? []
 
-  const [forecast, setForecast] = useState(() => {
-    try {
-      const cached = localStorage.getItem('cached_seller_forecast')
-      return cached ? JSON.parse(cached) : []
-    } catch {
-      return []
-    }
-  })
+  const isSyncing =
+    productsQuery.isFetching ||
+    ordersQuery.isFetching ||
+    statsQuery.isFetching ||
+    forecastQuery.isFetching
 
-  const [globalRecs, setGlobalRecs] = useState([])
-  const [isSyncing, setIsSyncing] = useState(false)
-
-  const [loading, setLoading] = useState(products.length === 0 && orders.length === 0)
+  const loading = isComplete && productsQuery.isPending && ordersQuery.isPending
   const [showAddForm, setShowAddForm] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editId, setEditId] = useState(null)
@@ -4335,55 +4319,13 @@ export default function SellerDashboard() {
 
   // Removed onboarding_skipped as it should be mandatory for new sellers
 
-  const fetchProducts = async () => {
-    try {
-      const data = await productApi.getSellerProducts()
-      setProducts(data.data)
-      localStorage.setItem('cached_seller_products', JSON.stringify(data.data))
-    } catch (err) {
-      console.error(err)
-    }
-  }
-  const fetchOrders = async () => {
-    try {
-      const { data } = await http.get('/orders/seller', { withCredentials: true })
-      setOrders(data.data)
-      localStorage.setItem('cached_seller_orders', JSON.stringify(data.data))
-    } catch (err) {
-      console.error(err)
-    }
-  }
-  const fetchStats = async () => {
-    try {
-      const { data } = await http.get('/orders/seller/stats', { withCredentials: true })
-      setStats(data.data)
-      localStorage.setItem('cached_seller_stats', JSON.stringify(data.data))
-    } catch (err) {
-      console.error(err)
-    }
-  }
+  // Kept as thin wrappers so the many existing call sites keep working; each
+  // now just marks the matching query stale and lets React Query refetch.
+  const fetchProducts = () => queryClient.invalidateQueries({ queryKey: qk.seller.products() })
+  const fetchOrders = () => queryClient.invalidateQueries({ queryKey: qk.seller.orders() })
+  const fetchStats = () => queryClient.invalidateQueries({ queryKey: qk.seller.stats() })
 
-  const fetchForecast = async () => {
-    try {
-      const { data } = await http.get('/orders/seller/forecast', { withCredentials: true })
-      setForecast(data.data)
-      setGlobalRecs(data.global_recommendations || [])
-      localStorage.setItem('cached_seller_forecast', JSON.stringify(data.data))
-    } catch (err) {
-      console.error(err)
-    }
-  }
-
-  const refreshAll = async () => {
-    setIsSyncing(true)
-    try {
-      await Promise.all([fetchProducts(), fetchOrders(), fetchStats(), fetchForecast()])
-    } catch (err) {
-      console.error('Background sync failed:', err)
-    } finally {
-      setIsSyncing(false)
-    }
-  }
+  const refreshAll = () => queryClient.invalidateQueries({ queryKey: ['seller'] })
 
   const blankProduct = {
     name: '',
@@ -4439,12 +4381,6 @@ export default function SellerDashboard() {
     setNewDistrict(user?.district || '')
   }, [user])
 
-  console.log('Seller Dashboard User:', user)
-
-  // Robust isComplete check
-  // Any user with a business name is considered "onboarded" and can access the dashboard.
-  const isComplete = !!user?.businessName || user?.isProfileComplete === true
-
   const [connectionSlow, setConnectionSlow] = useState(false)
 
   useEffect(() => {
@@ -4454,20 +4390,8 @@ export default function SellerDashboard() {
     return () => clearTimeout(timer)
   }, [user, loading])
 
-  console.log('Seller Dashboard isComplete:', isComplete)
-
-  useEffect(() => {
-    if (isComplete) {
-      // Trigger all fetches in background
-      fetchProducts()
-      fetchOrders()
-      fetchStats()
-      fetchForecast()
-      setLoading(false)
-    } else {
-      setLoading(false)
-    }
-  }, [isComplete])
+  // The queries above are gated on isComplete, so there is nothing left to
+  // trigger here - React Query fetches as soon as they become enabled.
 
   // Safety: If auth is supposedly done but user is still null, something is wrong
   // but we shouldn't crash. Show loading if user is missing.
@@ -4558,11 +4482,11 @@ export default function SellerDashboard() {
         {},
         { withCredentials: true }
       )
-      alert(`Success! Waybill Generated: ${data.trackingId}`)
+      toast.success(`Waybill generated: ${data.trackingId}`)
       fetchOrders()
     } catch (err) {
       console.error(err)
-      alert('Logistics API Error: ' + (err.response?.data?.message || err.message))
+      toast.error('Logistics API error: ' + (err.response?.data?.message || err.message))
     }
   }
 
@@ -4585,18 +4509,19 @@ export default function SellerDashboard() {
     setShowAddForm(true)
   }
 
-  const handleAddProduct = async (e) => {
-    e.preventDefault()
-    const validImages = newProduct.images.filter((url) => url.trim() !== '')
-    if (!validImages.length) return alert('Please add at least one valid image URL')
+  // Receives values already parsed by productSchema: price is a number, every
+  // image is a valid URL, and there is at least one size row.
+  const handleAddProduct = async (values) => {
     try {
-      const productToSave = { ...newProduct, images: validImages }
-      if (isEditing) await productApi.updateProduct(editId, productToSave)
-      else await productApi.addProduct(productToSave)
+      const payload = toProductPayload(values)
+      if (isEditing) await productApi.updateProduct(editId, payload)
+      else await productApi.addProduct(payload)
+      toast.success(isEditing ? 'Listing updated' : 'Listing created')
       handleCloseForm()
       fetchProducts()
+      fetchStats()
     } catch (err) {
-      alert('Failed: ' + (err.response?.data?.message || err.message))
+      toast.error('Failed: ' + (err.response?.data?.message || err.message))
     }
   }
   const handleCloseForm = () => {
@@ -4609,9 +4534,13 @@ export default function SellerDashboard() {
     if (!window.confirm('Delete this product?')) return
     try {
       await productApi.deleteProduct(productId)
-      setProducts(products.filter((p) => p._id !== productId))
+      queryClient.setQueryData(qk.seller.products(), (old) =>
+        old ? { ...old, data: (old.data ?? []).filter((p) => p._id !== productId) } : old
+      )
+      toast.success('Product deleted')
+      fetchStats()
     } catch (err) {
-      alert('Failed to delete: ' + (err.response?.data?.message || err.message))
+      toast.error('Failed to delete: ' + (err.response?.data?.message || err.message))
     }
   }
   const handleStockChange = async (productId, size, newStock) => {
@@ -4621,9 +4550,13 @@ export default function SellerDashboard() {
         s.size === size ? { ...s, stock: parseInt(newStock) || 0 } : s
       )
       const data = await productApi.updateProduct(productId, { sizes: updatedSizes })
-      setProducts(products.map((p) => (p._id === productId ? data.data : p)))
+      queryClient.setQueryData(qk.seller.products(), (old) =>
+        old
+          ? { ...old, data: (old.data ?? []).map((p) => (p._id === productId ? data.data : p)) }
+          : old
+      )
     } catch (err) {
-      console.error(err)
+      toast.error(err.response?.data?.message || 'Could not update stock')
     }
   }
   const handleUpdateProfile = async () => {
@@ -4635,14 +4568,14 @@ export default function SellerDashboard() {
       })
       setUser(data.user)
       setEditProfile(false)
-      alert('Profile updated!')
+      toast.success('Profile updated')
 
       // Update local storage if needed to reflect profile completion
       fetchProducts()
       fetchOrders()
       fetchStats()
     } catch (err) {
-      alert(err.response?.data?.message || 'Update failed')
+      toast.error(err.response?.data?.message || 'Update failed')
     }
   }
 
@@ -4748,8 +4681,10 @@ export default function SellerDashboard() {
       </main>
       {showAddForm && (
         <ProductForm
+          // Remounted per edit target so RHF picks up fresh defaultValues;
+          // without the key it would keep the previous product's fields.
+          key={editId || 'new'}
           newProduct={newProduct}
-          setNewProduct={setNewProduct}
           isEditing={isEditing}
           onSubmit={handleAddProduct}
           onClose={handleCloseForm}

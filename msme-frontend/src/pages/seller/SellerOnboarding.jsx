@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { useToast } from '../../components/Toast'
 import { FaBuilding, FaCheckCircle } from 'react-icons/fa'
 
 export default function SellerOnboarding({ onComplete }) {
   const { user, setUser } = useAuth()
+  const toast = useToast()
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
     businessName: '',
@@ -57,7 +59,7 @@ export default function SellerOnboarding({ onComplete }) {
         onComplete()
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Update failed')
+      toast.error(err.response?.data?.message || 'Update failed')
     } finally {
       setLoading(false)
     }
