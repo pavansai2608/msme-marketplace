@@ -108,6 +108,15 @@ export KUBECONFIG="$KUBECONFIG_PATH"
 [[ -f "$KUBECONFIG" ]] || die "k3s kubeconfig not at $KUBECONFIG"
 
 log "Waiting for the node to be Ready"
+# `kubectl wait --all` does NOT wait for a resource to come into existence: with
+# no node registered yet it returns "no matching resources found" and exits
+# non-zero immediately. On a fresh k3s install the API server accepts
+# connections a good 20s before the kubelet registers the node, so waiting for
+# the object to appear has to come first, or the bootstrap dies on a healthy box.
+for _ in $(seq 1 60); do
+  kubectl get nodes --no-headers 2>/dev/null | grep -q . && break
+  sleep 5
+done
 kubectl wait --for=condition=Ready node --all --timeout=300s >/dev/null \
   || die "node never became Ready. Check: journalctl -u k3s -n 100"
 ok "node Ready"
@@ -136,6 +145,14 @@ ok "cert-manager running"
 # Traefik v2 used traefik.containo.us/v1alpha1. Checking here turns an
 # otherwise cryptic "no matches for kind Middleware" into something actionable.
 log "Checking Traefik CRDs"
+# k3s installs Traefik through a helm-controller Job, so on a freshly installed
+# cluster the CRDs arrive up to a minute after the node goes Ready. Without this
+# wait the check below reports a false negative and the overlay apply then fails
+# on "no matches for kind Middleware".
+for _ in $(seq 1 36); do
+  kubectl get crd middlewares.traefik.io >/dev/null 2>&1 && break
+  sleep 5
+done
 if kubectl get crd middlewares.traefik.io >/dev/null 2>&1; then
   ok "Traefik v3 CRDs present"
 else
@@ -219,7 +236,14 @@ kubectl -n "$NAMESPACE" get ingress
 echo
 log "Certificate"
 # Issuance needs port 80 reachable from the internet for the HTTP-01 challenge.
-if kubectl -n "$NAMESPACE" wait --for=condition=Ready certificate/msme-tls --timeout=180s >/dev/null 2>&1; then
+# cert-manager creates the Certificate from the Ingress annotation a moment
+# after the Ingress lands, and `kubectl wait` on a resource that does not exist
+# yet fails instantly rather than waiting - so let it appear first.
+for _ in $(seq 1 24); do
+  kubectl -n "$NAMESPACE" get certificate msme-tls >/dev/null 2>&1 && break
+  sleep 5
+done
+if kubectl -n "$NAMESPACE" wait --for=condition=Ready certificate/msme-tls --timeout=300s >/dev/null 2>&1; then
   ok "TLS certificate issued"
 else
   warn "certificate not ready yet. It usually takes another minute or two."

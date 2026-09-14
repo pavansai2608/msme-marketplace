@@ -36,7 +36,11 @@ SECRET_KEYS=(
   SHIPROCKET_PASSWORD
 )
 
-TMP="$(mktemp -t msme-secret)"
+# Spelled out rather than `mktemp -t msme-secret`: BSD mktemp (macOS) treats the
+# argument as a prefix and appends its own suffix, but GNU mktemp (the Ubuntu
+# box) requires an explicit template of at least three X's and errors out with
+# "too few X's in template". An explicit path with X's is correct on both.
+TMP="$(mktemp "${TMPDIR:-/tmp}/msme-secret.XXXXXX")"
 # Deleted on any exit path, including a failure part-way through.
 trap 'rm -f "$TMP"' EXIT
 
