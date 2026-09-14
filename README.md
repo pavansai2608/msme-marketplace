@@ -1,130 +1,201 @@
-# MSME Platform - AI-Enabled District-Level Marketplace
+# MSME Platform — AI-Enabled District-Level Marketplace
 
-An advanced and  AI-powered e-commerce and operational platform designed to empower Micro, Small, and Medium Enterprises (MSMEs) by providing them with the tools needed to scale their businesses from local hubs to global markets.
+A full-stack marketplace that lets Micro, Small and Medium Enterprises sell
+beyond their local district, with a recommendation service and seller-facing
+analytics on top of the usual catalogue, cart and checkout.
 
-## 🚀 Overview
+## Architecture
 
-The MSME Platform is a full-stack MERN application that serves as a district-level aggregation hub. It doesn't just facilitate buying and selling; it provides sellers with actionable data-driven insights through demand forecasting, production advisory, and streamlined logistics.
+Three services, each independently built and deployed:
 
-## ✨ Key Features
+| Service | Stack | Port | Purpose |
+|---|---|---|---|
+| `msme-backend/` | Express 4, Mongoose 8 | 5000 | REST API, auth, orders, admin |
+| `msme-frontend/` | React 18, Vite 5 | 3001 dev / 8080 in container | SPA, PWA |
+| `msme-recommender/` | FastAPI, scikit-learn | 8000 | Content, collaborative and hybrid recommenders |
 
-### 🏪 Marketplace
-- **Buyer Dashboard**: Detailed product discovery with categories, wishlist functionality, and a seamless checkout process.
-- **Seller Hub**: Comprehensive inventory management, product listing, and real-time order status updates.
+MongoDB Atlas is the database in every environment, including local development.
+The backend is the only service that talks to the frontend; it proxies to the
+recommender internally, so the recommender is never exposed publicly.
 
-### 🧠 AI & Analytics
-- **Demand Forecasting**: Predictive analytics to help sellers understand upcoming trends and optimize production.
-- **Sales Visualization**: Dynamic charts using **Recharts** to visualize revenue, sales volume, and growth patterns.
-- **Production Advisory**: AI-driven suggestions for inventory replenishment and operational efficiency.
+## Features
 
-### 🚛 Logistics & Operations
-- **Logistics Integration**: Integrated with **Shiprocket** (mocked/real) for carrier assignment, shipment tracking, and delivery management.
-- **PWA (Progressive Web App)**: Mobile-first design with offline support, installable on any device for a native experience.
+**Marketplace** — product discovery by category and district, wishlist, cart,
+checkout, and a seller hub for inventory and order status.
 
-### 💰 Financials & Support
-- **Govt Scheme Discovery**: Automated discovery tool for government subsidies and MSME schemes.
-- **Micro-Loans**: Access to financial service modules for quick credit and loan disbursements.
+**Recommendations** — trending products (`/api/products/recommended`) and
+similar-item suggestions on a product page (`/api/products/:id/similar`), both
+served by the FastAPI service.
 
-### 🔒 Security & Auth
-- **Secure Authentication**: JWT-based session management and **Google OAuth 2.0** integration.
-- **Middleware**: Enhanced security using **Helmet**, **CORS** policies, and request validation.
+**Seller analytics** — revenue and sales-volume charts (Recharts), demand
+signals and production advisory.
 
-## 🛠️ Tech Stack
+**Logistics** — Shiprocket integration for carrier assignment and shipment
+tracking (`msme-backend/utils/shiprocket.js`).
 
-**Frontend:**
-- React.js (Vite)
-- Framer Motion (Animations)
-- Recharts (Data Visualization)
-- Tailwind CSS (Styling)
+**Auth** — JWT access tokens (15 min) with refresh tokens, Google OAuth 2.0,
+CSRF protection, and in-memory rate limiting on the auth endpoints. Roles are
+`buyer`, `seller`, `admin`.
 
-**Backend:**
-- Node.js & Express.js
-- MongoDB & Mongoose (Database)
-- Passport.js (Authentication)
+**Schemes and micro-loans** — discovery of government MSME subsidies.
 
-**Deployment & DevOps:**
-- Git/GitHub (Version Control)
-- Vercel (Frontend Hosting)
-- Render (Backend Hosting)
+## Tech stack
 
-## 📦 Project Structure
+**Frontend** — React 18, Vite, React Router 6, TanStack Query 5, react-hook-form
+with Zod validation, Recharts, react-window, plain CSS (`src/index.css`).
+
+**Backend** — Node, Express, Mongoose, Passport (Google OAuth), Helmet, CORS.
+
+**Recommender** — FastAPI, scikit-learn, NumPy, SciPy, PyMongo, Pydantic.
+
+**Infrastructure** — Docker Compose locally, Kubernetes (kustomize) for
+minikube and k3s, Jenkins for CI, GitHub Actions for image publishing, GHCR for
+image hosting, cert-manager plus Let's Encrypt for TLS.
+
+## Project structure
 
 ```text
-├── msme-backend/       # Express.js server, API routes, models, and controllers
-├── msme-frontend/      # React (Vite) application, components, and styles
-├── .gitignore          # Git exclusion rules
-└── README.md           # Project documentation
+├── msme-backend/        Express API — routes, controllers, models, tests
+├── msme-frontend/       React SPA — src/, e2e/ (Playwright)
+├── msme-recommender/    FastAPI service — app/, tests/
+├── k8s/
+│   ├── base/            Deployments, services, ingress, HPA, ConfigMap
+│   └── overlays/        dev (minikube + nginx), prod, aws (k3s + Traefik)
+├── scripts/             aws-bootstrap.sh — one-shot deploy to a fresh box
+├── jenkins/             Jenkins setup notes
+├── aws/                 AWS deployment runbook and cost table
+├── .github/workflows/   publish-images.yml — builds images to ghcr.io
+├── docker-compose.yml   Local all-in-one
+├── jenkinsfile          Declarative CI pipeline
+└── REPORT.md            Read-only code audit (data model, routes, findings)
 ```
 
-## ⚙️ Setup & Installation
+## Running locally
 
 ### Prerequisites
-- Node.js (v18+)
-- MongoDB Atlas Account or Local MongoDB Instance
 
-### Backend Setup
-1. Navigate to the backend directory:
-   ```bash
-   cd msme-backend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Create a `.env` file and add your configuration:
-   ```env
-   PORT=5000
-   MONGO_URL=your_mongodb_uri
-   JWT_SECRET=your_secret_key
-   GOOGLE_CLIENT_ID=your_id
-   GOOGLE_CLIENT_SECRET=your_secret
-   SHIPROCKET_EMAIL=your_email
-   SHIPROCKET_PASSWORD=your_password
-   ```
-4. Start the development server:
-   ```bash
-   npm run dev
-   ```
+- Node.js 18+
+- Python 3.11+ (for the recommender)
+- Docker and Docker Compose (for the all-in-one path)
+- A MongoDB Atlas connection string
 
-### Frontend Setup
-1. Navigate to the frontend directory:
-   ```bash
-   cd msme-frontend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
+### Configuration
 
-## 🖥️ Quick Server Start
+Create `msme-backend/.env`. It is gitignored and must never be committed:
 
-To start the full application locally:
+```env
+PORT=5000
+NODE_ENV=development
+MONGO_URL=mongodb+srv://<username>:<password>@<cluster>/msme-marketplace
+JWT_SECRET=a_long_random_string
+JWT_REFRESH_SECRET=a_different_long_random_string
+JWT_EXPIRE=15m
+CLIENT_URL=http://localhost:3001
+RECOMMENDER_URL=http://localhost:8000
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
+```
 
-1. **Start MongoDB** (ensure it's running locally or via a service).
-2. **Start the Backend:**
-   ```bash
-   cd msme-backend
-   npm install   # if not already installed
-   npm start
-   ```
-   The backend will run on `http://localhost:5000` by default.
-3. **Start the Frontend:**
-   ```bash
-   cd msme-frontend
-   npm install   # if not already installed
-   npm run dev
-   ```
-   The frontend will run on `http://localhost:3001` by default.
+`JWT_REFRESH_SECRET` is optional — it falls back to `${JWT_SECRET}:refresh`,
+which works but means one leaked secret compromises both token families.
+Without all three Google values, Google sign-in is disabled at boot and
+`/api/auth/google` answers 503 rather than crashing.
 
-## 👑 Creating an Admin
+### Everything at once
 
-There is **no HTTP route that can grant the admin role**. `/api/auth/update-profile`
-strips `role` out of the request body and `/api/auth/become-seller` hardcodes
-`'seller'`, so the role cannot be reached by any request a client can make.
+```bash
+docker compose up -d --build
+```
+
+Frontend on `http://localhost:3001`, backend on `:5000`, recommender on `:8000`.
+
+> The Compose file also starts a Redis container. Nothing in the application
+> currently reads from it — there is no `redis` dependency in any
+> `package.json` and no reference in the Kubernetes manifests.
+
+### Service by service
+
+```bash
+cd msme-backend      && npm install && npm run dev    # :5000
+cd msme-frontend     && npm install && npm run dev    # :3001
+cd msme-recommender  && pip install -r requirements.txt \
+                     && uvicorn app.main:app --port 8000
+```
+
+## Tests
+
+```bash
+cd msme-backend     && npm test            # jest + supertest + mongodb-memory-server
+cd msme-recommender && pytest              # content / collaborative / hybrid / api / eval
+cd msme-frontend    && npm run test:e2e    # Playwright, chromium
+```
+
+The Playwright suite covers registration and login, search → product → cart →
+checkout, role-based access control, the become-seller and create-product flow,
+and recommendations on a product page. It runs against a **deployed**
+application, seeds its own data through `msme-backend/scripts/seedE2E.js`, and
+tags and removes what it creates.
+
+Other checks:
+
+```bash
+npm run lint      # in either JS workspace
+npm run knip      # unused files, exports and dependencies
+npm run depcheck  # at the repo root
+```
+
+## Deployment
+
+### Kubernetes
+
+Manifests are kustomize, with three overlays:
+
+```bash
+kubectl kustomize k8s/overlays/dev     # minikube + ingress-nginx
+kubectl kustomize k8s/overlays/prod    # a normal cloud cluster
+kubectl kustomize k8s/overlays/aws     # single-node k3s + Traefik
+```
+
+The `aws` overlay is sized for a 2 GiB node: one replica each, HPA max 2,
+`imagePullPolicy: Always`, images from GHCR, and `maxSurge: 0` on rollouts
+because there is no room for a surge pod. See `k8s/README.md`.
+
+### AWS — one EC2 box with k3s
+
+`aws/README.md` is the full runbook: instance and security-group settings,
+elastic IP, Atlas allowlisting, TLS via cert-manager, a cost table, and what
+does and does not fit in 2 GiB. Short version, on a fresh Ubuntu box:
+
+```bash
+sudo ACME_ISSUER=letsencrypt-staging ./scripts/aws-bootstrap.sh   # validate first
+sudo ./scripts/aws-bootstrap.sh                                    # then the real CA
+```
+
+The script is idempotent and reads secrets only from `/opt/msme/.env` — never
+from arguments, and never into the log.
+
+### CI
+
+`jenkinsfile` is a declarative pipeline: checkout, lint (parallel), unit tests
+(jest and pytest in parallel, JUnit XML published), build three images tagged
+with the git short SHA, deploy to the dev overlay, Playwright E2E, then publish
+coverage and the HTML report. A manual approval gate guards the production
+stages. See `jenkins/README.md` for the plugins and credential IDs.
+
+`.github/workflows/publish-images.yml` builds and pushes the three images to
+`ghcr.io` on every push to `main`, tagged `latest` and with the short SHA.
+
+> GHCR packages are created **private**, and `GITHUB_TOKEN` cannot change that.
+> After the first push, set each of the three to Public in the package settings,
+> or pods will sit in `ImagePullBackOff`.
+
+## Creating an admin
+
+There is **no HTTP route that can grant the admin role**.
+`/api/auth/update-profile` strips `role` out of the request body and
+`/api/auth/become-seller` hardcodes `'seller'`, so the role cannot be reached by
+any request a client can make.
 
 The only way to create one is the seeding script, run against the database
 directly:
@@ -134,14 +205,14 @@ cd msme-backend
 node scripts/seedAdmin.js someone@example.com
 ```
 
-The account **must already exist** - register through the app first, then
+The account **must already exist** — register through the app first, then
 promote that email. The script also forces `isActive: true`, since a suspended
 admin would be promoted and then blocked at the door by `verifyToken`.
 
 Sign out and back in afterwards for an already-open session to pick up the new
 role in the UI. (The server reads the role from the database on every request,
-so the API grants admin access immediately; it is only the cached user object
-in the browser that is stale.)
+so the API grants admin access immediately; it is only the cached user object in
+the browser that is stale.)
 
 ### Admin endpoints
 
@@ -152,22 +223,29 @@ anyone else:
 | --- | --- | --- |
 | GET | `/api/admin/stats` | User counts by role, product count, order count, total revenue, orders in the last 7 days |
 | GET | `/api/admin/users` | Paginated user list; `?search=` matches name and email, `?page=`, `?limit=` (max 100), `?role=` |
-| PATCH | `/api/admin/users/:id/status` | Body `{ "isActive": true \| false }` - activate or deactivate an account |
+| PATCH | `/api/admin/users/:id/status` | Body `{ "isActive": true \| false }` — activate or deactivate an account |
 | GET | `/api/admin/orders` | Paginated order list; `?status=` filters on the Order status enum |
 
 `totalRevenue` is the sum of `totalAmount` across every order **except**
 `Cancelled` ones, including orders still in flight.
 
 Deactivating a user takes effect on their **next request**: `verifyToken` reads
-`isActive` from the database each time and answers 403 `account_inactive`, so
-an access token already in their browser stops working without waiting for its
-15-minute expiry. An admin cannot deactivate their own account - that would
-lock every admin route behind a 403 with nobody left to lift it.
+`isActive` from the database each time and answers 403 `account_inactive`, so an
+access token already in their browser stops working without waiting for its
+15-minute expiry. An admin cannot deactivate their own account — that would lock
+every admin route behind a 403 with nobody left to lift it.
 
-## 🌐 HTTPS Usage Note
+## Security notes
 
-This codebase integrates with several third-party APIs and services that communicate over **HTTPS** (e.g., Shiprocket API, Nominatim OpenStreetMap, Google OAuth, and npm registry packages). While the local development servers run on HTTP, ensure that all external API keys and environment variables are configured securely for production deployments.
+- `msme-backend/.env` is gitignored. Secrets reach Kubernetes through
+  `k8s/make-secret.sh`, which copies only `MONGO_URL`, `JWT_SECRET`,
+  `JWT_REFRESH_SECRET`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` — so
+  nothing else in `.env` can override what the ConfigMap sets.
+- `k8s/base/secret.example.yaml` is a template. It must never hold real values.
+- In production `NODE_ENV=production` marks the auth cookies `Secure`, so the
+  app must be served over HTTPS or login will appear to succeed and then do
+  nothing. The AWS overlay redirects HTTP to HTTPS for this reason.
 
-## 📄 License
+## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+No `LICENSE` file is currently committed.

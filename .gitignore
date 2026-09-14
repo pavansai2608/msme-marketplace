@@ -34,3 +34,4 @@ msme-backend/coverage/
 msme-recommender/test-results/
 msme-recommender/coverage.xml
 msme-recommender/.coverage
+*.log
