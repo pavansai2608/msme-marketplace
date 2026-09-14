@@ -64,10 +64,10 @@ image hosting, cert-manager plus Let's Encrypt for TLS.
 ├── scripts/             aws-bootstrap.sh — one-shot deploy to a fresh box
 ├── jenkins/             Jenkins setup notes
 ├── aws/                 AWS deployment runbook and cost table
+├── docs/                audit-baseline.md — read-only code audit (data model, routes, findings)
 ├── .github/workflows/   publish-images.yml — builds images to ghcr.io
 ├── docker-compose.yml   Local all-in-one
-├── jenkinsfile          Declarative CI pipeline
-└── REPORT.md            Read-only code audit (data model, routes, findings)
+└── jenkinsfile          Declarative CI pipeline
 ```
 
 ## Running locally

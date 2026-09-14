@@ -3,7 +3,7 @@
 Console steps in order, then verification, then how to stop paying for it.
 
 **What you end up with:** the full stack (frontend, backend, recommender) on a
-single t3.small in Mumbai, behind Traefik with a real Let's Encrypt
+single t3.small, behind Traefik with a real Let's Encrypt
 certificate, reachable at `https://msme.<your-elastic-ip-dashed>.nip.io`, with
 MongoDB Atlas unchanged.
 
@@ -48,7 +48,7 @@ overlay's job; the base just describes the routes.
 | Instance type | `t3.small` |
 | Key pair | create one, e.g. `msme-key` — download the `.pem` |
 | Storage | **30 GiB**, **gp3** |
-| Region | **ap-south-1 (Mumbai)** — set this *before* anything else |
+| Region | **ap-southeast-2 (Sydney)** — set this *before* anything else. Any region works; just keep every step in the same one. |
 
 > Pick the AMI by **name** in the console, not by ID. AMI IDs are per-region
 > and change with every Ubuntu rebuild, so any ID written here would be stale.
@@ -209,8 +209,8 @@ Nine times in ten it is port 80 not open to `0.0.0.0/0`.
 ```bash
 # Console: EC2 → Instances → select → Instance state → Stop instance
 # Or from your laptop, with the AWS CLI configured:
-aws ec2 stop-instances  --instance-ids i-xxxxxxxx --region ap-south-1
-aws ec2 start-instances --instance-ids i-xxxxxxxx --region ap-south-1
+aws ec2 stop-instances  --instance-ids i-xxxxxxxx --region ap-southeast-2
+aws ec2 start-instances --instance-ids i-xxxxxxxx --region ap-southeast-2
 ```
 
 Stopping bills no compute. The gp3 volume and the elastic IP keep billing.
@@ -226,7 +226,12 @@ A stopped instance you forget about still costs ~$6/month.
 
 ## Cost
 
-ap-south-1, 730 hours/month, on-demand, no Savings Plan.
+ap-south-1 (Mumbai) rates, 730 hours/month, on-demand, no Savings Plan.
+
+> **The deployed box is in ap-southeast-2 (Sydney), where on-demand rates are
+> higher.** These figures were verified for Mumbai only, so treat the table as a
+> floor rather than the bill. Confirm the Sydney rate in the AWS pricing
+> calculator before budgeting.
 
 | Item | Rate | Running 24/7 | Stopped |
 |---|---|---:|---:|
@@ -240,7 +245,8 @@ ap-south-1, 730 hours/month, on-demand, no Savings Plan.
 | **Total** | | **≈$22.74/mo** | **≈$6.39/mo** |
 
 gp3 in Mumbai is a little above the $0.08/GiB US rate; confirm in the AWS
-calculator if the exact figure matters. The t3.small and IPv4 rates are firm.
+calculator if the exact figure matters. The t3.small and IPv4 rates are firm
+**for Mumbai**. The IPv4 charge of $0.005/hr is the same in every region.
 
 **What to stop when idle**
 
@@ -302,7 +308,7 @@ told to tolerate swap (`--kubelet-arg=fail-swap-on=false` in
 `INSTALL_K3S_EXEC`) or k3s will refuse to start. I would rather you keep the
 footprint honest than paper over it with swap on a gp3 volume.
 
-**Atlas is across the public internet from Mumbai.** Nothing serves `/health`
+**Atlas is across the public internet from the instance.** Nothing serves `/health`
 until mongoose connects (`server.js` does `connectDB().then(() =>
 app.listen())`), so a slow Atlas looks identical to a broken app. The overlay
 raises the startup probe to 60 × 5s = 300 s to absorb that. If a pod still
