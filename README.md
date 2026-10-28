@@ -110,10 +110,6 @@ docker compose up -d --build
 
 Frontend on `http://localhost:3001`, backend on `:5000`, recommender on `:8000`.
 
-> The Compose file also starts a Redis container. Nothing in the application
-> currently reads from it — there is no `redis` dependency in any
-> `package.json` and no reference in the Kubernetes manifests.
-
 ### Service by service
 
 ```bash
@@ -248,4 +244,4 @@ every admin route behind a 403 with nobody left to lift it.
 
 ## License
 
-No `LICENSE` file is currently committed.
+[MIT](LICENSE).

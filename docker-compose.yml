@@ -1,4 +1,4 @@
-# Local stack: all three services plus redis. MongoDB is NOT here - the app
+# Local stack: all three services. MongoDB is NOT here - the app
 # talks to Atlas, and MONGO_URL comes from msme-backend/.env.
 #
 #   docker compose up -d --build
@@ -23,10 +23,7 @@ services:
       NODE_ENV: production
       CLIENT_URL: http://localhost:3001
       RECOMMENDER_URL: http://recommender:8000
-      REDIS_URL: redis://redis:6379
     depends_on:
-      redis:
-        condition: service_healthy
       recommender:
         # Only "started": the recommender indexes Atlas on boot and the backend
         # is designed to run without it (2s timeout, then a graceful fallback).
@@ -70,23 +67,3 @@ services:
       COLLAB_WEIGHT: "0.4"
     restart: unless-stopped
 
-  redis:
-    image: redis:7-alpine
-    container_name: msme-redis
-    # appendonly keeps the data across restarts; without it a container
-    # recreate silently empties the cache.
-    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
-    restart: unless-stopped
-
-volumes:
-  redis-data:
